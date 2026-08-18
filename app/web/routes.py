@@ -400,8 +400,7 @@ def _register(bp):
     # ------------------------------------------------------------ 엑셀 업로드
     @bp.route("/upload")
     def upload():
-        return render_template("upload.html", active="upload", today=models.today(),
-                               staged=session.get("upload"))
+        return render_template("upload.html", active="upload", today=models.today())
 
     @bp.post("/upload/analyze")
     def upload_analyze():
@@ -426,18 +425,21 @@ def _register(bp):
                 "mapping": {str(k): v for k, v in importer.auto_mapping(s.headers).items()},
             } for s in sheets],
         }
-        session["upload"] = payload
+        # 세션 쿠키는 4KB 를 넘으면 브라우저가 조용히 버린다.
+        # 열이 많은 파일에서도 안전하도록 경로만 남기고, 나머지는 응답으로만 보낸다.
+        session["upload_path"] = str(dest)
+        session["upload_name"] = f.filename
         return jsonify(ok=True, **payload, fields=_FIELD_LABELS)
 
     @bp.post("/upload/run")
     def upload_run():
         """2단계: 사람이 확정한 매핑으로 실행. dry_run 이면 결과만 계산하고 되돌린다."""
         b = _body() if not request.is_json else request.get_json()
-        staged = session.get("upload")
+        staged = session.get("upload_path")
         if not staged:
             raise models.DomainError("업로드 정보가 만료되었습니다. 파일을 다시 올려주세요.")
 
-        path = Path(staged["path"])
+        path = Path(staged)
         if not path.exists():
             raise models.DomainError("업로드한 파일을 찾을 수 없습니다. 다시 올려주세요.")
 

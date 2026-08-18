@@ -248,7 +248,34 @@ def main():
             ok = False; print(f"       불일치 {row['code']}: 뷰={row['on_hand']} 합산={calc}")
     check("전 품목 일치", ok)
 
-    print("\n[19] 404 / 잘못된 입력")
+    print("\n[19] 열이 많은 파일도 세션이 넘치지 않는다 (쿠키 4KB 한계)")
+    from openpyxl import Workbook
+    wb = Workbook(); ws = wb.active; ws.title = "재고현황"
+    ws.append(["품목코드","품목명","규격","단위","분류","안전재고","현재고","매입단가","보관위치","비고"]
+              + [f"부가컬럼{i}" for i in range(1, 16)])
+    for i in range(1, 31):
+        ws.append([f"W-{i:04d}", f"아주긴한글품목명입니다테스트용{i}", f"규격설명이길게들어가는경우{i}",
+                   "EA", "사무용품", 10, i*3, 1000+i, f"창고A-{i}", "비고내용이제법길게들어갑니다"]
+                  + [f"부가값{j}번째의긴한글내용{i}" for j in range(1, 16)])
+    wide = _tmp / "wide.xlsx"; wb.save(wide)
+
+    with c.session_transaction() as sess:
+        sess.clear()
+    with open(wide, "rb") as f:
+        r = c.post("/upload/analyze", data={"file": (io.BytesIO(f.read()), "wide.xlsx")},
+                   content_type="multipart/form-data", headers={"X-Requested-With": "fetch"})
+    check(f"25열 파일 분석 {r.status_code}", r.status_code == 200, r.data[:200])
+    cookie = r.headers.get("Set-Cookie", "")
+    check(f"세션 쿠키가 4KB 미만 ({len(cookie)} bytes)", len(cookie) < 4000, f"got {len(cookie)}")
+    wd = r.get_json()
+    check("25열 전부 노출", len(wd["sheets"][0]["headers"]) == 25, str(len(wd["sheets"][0]["headers"])))
+    r = jpost("/upload/run", {"sheet_index": 0, "mode": "items",
+                              "mapping": wd["sheets"][0]["mapping"], "dry_run": False})
+    check(f"열 많은 파일 반영 {r.status_code}", r.status_code == 200, r.data[:200])
+    check("30건 등록", r.get_json()["report"]["items_created"] == 30,
+          str(r.get_json()["report"]["items_created"]))
+
+    print("\n[20] 404 / 잘못된 입력")
     check("없는 품목 상세 -> 404", get("/stock/99999").status_code == 404)
     check("없는 실사 -> 404", get("/stocktake/99999").status_code == 404)
     r = jpost("/api/txn", {"raw_name": "", "txn_type": "IN", "qty": 5})
