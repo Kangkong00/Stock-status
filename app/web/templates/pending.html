@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}확인 대기{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <div><h1>확인 대기</h1>
+    <div class="sub">시스템이 표준품목을 찾지 못한 상품명입니다. 한 번 연결하면 다음부터 자동 처리됩니다.</div></div>
+</div>
+
+{% if rows %}
+<div class="help">
+  <b>이 화면이 재고 정확도의 핵심입니다.</b>
+  추천 후보를 눌러 연결하면 ① 입출고가 원장에 기록되고 ② 그 상품명이 별칭으로 학습됩니다.
+  같은 이름이 다시 들어오면 손댈 필요가 없습니다.
+</div>
+
+<div class="panel">
+  <div class="panel-hd"><h2>처리 대기 {{ rows|length }}건</h2>
+    <span class="hint">추천 후보 옆 퍼센트는 이름이 얼마나 비슷한지입니다</span></div>
+  <div class="panel-bd flush">
+    {% for p in rows %}
+    <div class="panel-bd" style="border-bottom:1px solid var(--line)" id="pend{{ p.id }}">
+      <div style="display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:10px">
+        <div>
+          <div class="big bold">{{ p.raw_name }}</div>
+          <div class="muted small" style="margin-top:3px">
+            {{ p.txn_date }} ·
+            <span class="tag {{ 'in' if p.txn_type=='IN' else 'outq' }}">{{ p.txn_type|txnkind }}</span>
+            {{ p.qty|number }}
+            {% if p.partner %} · {{ p.partner }}{% endif %}
+            {% if p.doc_no %} · 전표 {{ p.doc_no }}{% endif %}
+          </div>
+          <div class="muted small mono" style="margin-top:3px">정규화 키: {{ p.norm_name }}</div>
+        </div>
+        <div class="btn-group">
+          <button class="btn" onclick="newItemFrom({{ p.id }}, {{ p.raw_name|tojson }})">신규 품목으로 등록</button>
+          <button class="btn" onclick="searchFor({{ p.id }})">직접 찾기</button>
+          <button class="btn danger" onclick="discard({{ p.id }})">제외</button>
+        </div>
+      </div>
+
+      {% if p.candidates %}
+      <div class="grid g2">
+        {% for c in p.candidates %}
+        <div class="card" style="padding:10px 13px;cursor:pointer" onclick="resolve({{ p.id }}, {{ c.item_id }})">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+            <div>
+              <b>{{ c.name }}</b> <span class="muted small">{{ c.spec }}</span><br>
+              <span class="mono small">{{ c.code }}</span>
+              <span class="muted small">· {{ {'alias':'별칭 유사','name':'품목명 유사','code':'코드 일치'}.get(c.via, c.via) }}</span>
+            </div>
+            <div class="nowrap" style="text-align:right">
+              <div class="bold" style="color:{{ 'var(--ok)' if c.score>=0.8 else ('var(--low)' if c.score>=0.6 else 'var(--muted)') }}">
+                {{ '%.0f'|format(c.score*100) }}%</div>
+              <div class="btn sm primary" style="margin-top:4px">연결</div>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="muted small">추천 후보가 없습니다. 새 품목이거나 이름이 많이 다릅니다.</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="panel"><div class="empty">
+  <div class="big">확인할 것이 없습니다</div>
+  <div class="small">올라온 상품명이 전부 자동으로 매칭되었습니다.</div>
+  <div style="margin-top:14px"><a class="btn primary" href="{{ url_for('web.upload') }}">엑셀 업로드</a>
+    <a class="btn" href="{{ url_for('web.register') }}">입출고 등록</a></div>
+</div></div>
+{% endif %}
+
+{% if resolved %}
+<div class="panel">
+  <div class="panel-hd"><h2>최근 처리한 건</h2>
+    <span class="hint">아래 이름들은 이제 자동으로 잡힙니다</span></div>
+  <div class="panel-bd">
+    {% for r in resolved %}<span class="pill"><b>{{ r.raw_name }}</b></span>{% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# 직접 찾기 모달 #}
+<div class="modal" id="findModal" hidden>
+  <div class="modal-box">
+    <div class="modal-hd"><h3>품목 직접 찾기</h3><button class="close-x" data-close="findModal">&times;</button></div>
+    <div class="modal-bd">
+      <div class="field"><label>품목코드 · 품목명 · 별칭으로 검색</label>
+        <input type="text" id="findQ" placeholder="검색어를 입력하세요"></div>
+      <div id="findResults"></div>
+    </div>
+  </div>
+</div>
+
+{# 신규 품목 등록 모달 #}
+<div class="modal" id="newModal" hidden>
+  <div class="modal-box">
+    <div class="modal-hd"><h3>신규 품목으로 등록</h3><button class="close-x" data-close="newModal">&times;</button></div>
+    <form onsubmit="return saveNew(event)">
+      <input type="hidden" id="nPendId">
+      <div class="modal-bd">
+        <div class="help">품목을 새로 만들면서 이 입출고까지 한 번에 처리합니다.
+          원문 상품명은 별칭으로 자동 등록됩니다.</div>
+        <div class="grid g2">
+          <div class="field"><label>품목코드 *</label><input type="text" name="code" id="nCode" required></div>
+          <div class="field"><label>품목명 *</label><input type="text" name="name" id="nName" required></div>
+        </div>
+        <div class="grid g3">
+          <div class="field"><label>규격</label><input type="text" name="spec" id="nSpec"></div>
+          <div class="field"><label>단위</label><input type="text" name="unit" id="nUnit" value="EA"></div>
+          <div class="field"><label>분류</label><input type="text" name="category" id="nCat" list="catList"></div>
+        </div>
+        <div class="grid g3">
+          <div class="field"><label>재고기준</label><input type="number" name="reorder_point" id="nRP" value="0" step="any" min="0"></div>
+          <div class="field"><label>권장발주량</label><input type="number" name="reorder_qty" value="0" step="any" min="0"></div>
+          <div class="field"><label>단가</label><input type="number" name="unit_cost" value="0" step="any" min="0"></div>
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button type="button" class="btn" data-close="newModal">취소</button>
+        <button type="submit" class="btn primary">등록하고 입출고 처리</button>
+      </div>
+    </form>
+  </div>
+</div>
+<datalist id="catList">{% for c in categories or [] %}<option value="{{ c }}">{% endfor %}</datalist>
+
+{% endblock %}
+
+{% block script %}
+<script>
+var findFor = null, ftimer = null;
+
+function resolve(pid, itemId){
+  var box = document.getElementById("pend"+pid);
+  if(box) box.classList.add("loading");
+  App.api("/api/pending/"+pid+"/resolve", {json:{item_id:itemId}}).then(function(d){
+    App.toast(d.message, "ok");
+    if(box){ box.style.transition="opacity .25s"; box.style.opacity="0";
+             setTimeout(function(){ box.remove(); reloadIfEmpty(); }, 260); }
+    App.closeModal();
+  }).catch(function(e){ App.toast(e.message,"err"); if(box) box.classList.remove("loading"); });
+}
+
+function discard(pid){
+  if(!App.confirmAction("이 건을 목록에서 제외할까요?\n입출고로 기록되지 않습니다.")) return;
+  App.api("/api/pending/"+pid+"/discard", {json:{}}).then(function(){
+    App.toast("제외했습니다.","ok");
+    var box = document.getElementById("pend"+pid);
+    if(box){ box.remove(); reloadIfEmpty(); }
+  }).catch(function(e){ App.toast(e.message,"err"); });
+}
+
+function reloadIfEmpty(){
+  if(!document.querySelector("[id^=pend]")) location.reload();
+}
+
+function searchFor(pid){
+  findFor = pid;
+  document.getElementById("findQ").value = "";
+  document.getElementById("findResults").innerHTML = "";
+  App.openModal("findModal");
+}
+
+document.getElementById("findQ").addEventListener("input", function(){
+  var q = this.value.trim();
+  clearTimeout(ftimer);
+  if(!q){ document.getElementById("findResults").innerHTML=""; return; }
+  ftimer = setTimeout(function(){
+    App.api("/api/search?q="+encodeURIComponent(q)).then(function(d){
+      var box = document.getElementById("findResults");
+      if(!d.items.length){ box.innerHTML = "<div class='muted small'>일치하는 품목이 없습니다.</div>"; return; }
+      box.innerHTML = d.items.map(function(it){
+        return "<div class='card' style='padding:9px 12px;margin-bottom:5px;cursor:pointer' "
+          + "onclick='resolve("+findFor+","+it.item_id+")'>"
+          + "<b>"+App.esc(it.name)+"</b> <span class='muted small'>"+App.esc(it.spec||"")+"</span><br>"
+          + "<span class='mono small'>"+App.esc(it.code)+"</span> "
+          + "<span class='muted small'>· 현재고 "+App.num(it.on_hand)+" "+App.esc(it.unit||"")+"</span></div>";
+      }).join("");
+    });
+  }, 180);
+});
+
+function newItemFrom(pid, rawName){
+  document.getElementById("nPendId").value = pid;
+  document.getElementById("nName").value = rawName;
+  document.getElementById("nCode").value = "";
+  document.getElementById("nSpec").value = "";
+  App.openModal("newModal");
+  setTimeout(function(){ document.getElementById("nCode").focus(); }, 60);
+}
+
+function saveNew(ev){
+  ev.preventDefault();
+  var pid = document.getElementById("nPendId").value;
+  var data = App.formData(ev.target);
+  App.api("/api/pending/"+pid+"/resolve", {json:data}).then(function(d){
+    App.toast(d.message,"ok");
+    App.closeModal("newModal");
+    var box = document.getElementById("pend"+pid);
+    if(box){ box.remove(); reloadIfEmpty(); }
+  }).catch(function(e){ App.toast(e.message,"err"); });
+  return false;
+}
+</script>
+{% endblock %}

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}재고실사{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <div><h1>재고실사</h1>
+    <div class="sub">실물 수량만 세어 넣으면 전산 재고와의 차이를 자동으로 계산하고 맞춰줍니다.</div></div>
+  <div class="actions"><button class="btn primary" onclick="App.openModal('newTake')">+ 실사 시작</button></div>
+</div>
+
+<div class="help">
+  <b>재고를 완벽하게 유지하는 현실적인 방법은 정기 실사뿐입니다.</b>
+  아무리 잘 기록해도 파손·분실·오출고로 전산과 실물은 조금씩 어긋납니다.
+  한 달에 한 번(또는 분류별로 돌아가며) 실사하면 그 오차가 쌓이지 않습니다.
+  실사 시트를 엑셀로 뽑아 창고에서 손으로 적고 화면에 옮겨 넣어도 됩니다.
+</div>
+
+<div class="panel">
+  {% if rows %}
+  <div class="panel-bd flush table-scroll">
+    <table>
+      <thead><tr><th>실사일</th><th>제목</th><th class="r">대상 품목</th><th class="r">카운트</th>
+        <th class="c">진행률</th><th class="c">상태</th><th>확정일시</th><th></th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td class="nowrap">{{ r.take_date }}</td>
+          <td class="bold"><a href="{{ url_for('web.stocktake_detail', stocktake_id=r.id) }}">{{ r.title }}</a></td>
+          <td class="r">{{ r.line_count }}</td>
+          <td class="r">{{ r.counted }}</td>
+          <td class="c"><div class="bar" style="margin:0 auto">
+            <i style="width:{{ (r.counted / r.line_count * 100)|round(0) if r.line_count else 0 }}%"></i></div></td>
+          <td class="c"><span class="tag {{ 'ok' if r.status=='committed' else 'low' }}">
+            {{ '확정' if r.status=='committed' else '진행중' }}</span></td>
+          <td class="small muted">{{ r.committed_at or '-' }}</td>
+          <td class="nowrap">
+            <a class="btn sm" href="{{ url_for('web.export_stocktake_file', stocktake_id=r.id) }}">시트 받기</a>
+            {% if r.status != 'committed' %}
+            <form method="post" action="{{ url_for('web.stocktake_delete', stocktake_id=r.id) }}"
+                  style="display:inline" onsubmit="return confirm('이 실사를 삭제할까요?')">
+              <button class="btn sm danger">삭제</button></form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">아직 실사 기록이 없습니다</div>
+    <div class="small">첫 실사를 시작해 전산 재고와 실물을 맞춰보세요.</div>
+    <div style="margin-top:14px"><button class="btn primary" onclick="App.openModal('newTake')">실사 시작</button></div>
+  </div>
+  {% endif %}
+</div>
+
+<div class="modal" id="newTake" hidden>
+  <div class="modal-box">
+    <div class="modal-hd"><h3>실사 시작</h3><button class="close-x" data-close="newTake">&times;</button></div>
+    <form method="post" action="{{ url_for('web.stocktake_new') }}" data-once>
+      <div class="modal-bd">
+        <div class="field"><label>실사일</label><input type="date" name="take_date" value="{{ today }}"></div>
+        <div class="field"><label>제목</label>
+          <input type="text" name="title" placeholder="예: 8월 정기 실사 (비워두면 자동 생성)"></div>
+        <div class="field"><label>대상 분류</label>
+          <select name="category"><option value="">전체 품목</option>
+            {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}</select>
+          <div class="muted small" style="margin-top:5px">
+            품목이 많으면 분류별로 나눠서 돌아가며 실사하는 편이 부담이 적습니다.</div></div>
+      </div>
+      <div class="modal-ft">
+        <button type="button" class="btn" data-close="newTake">취소</button>
+        <button type="submit" class="btn primary">시작</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

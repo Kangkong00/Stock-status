@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}{{ st.title }}{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <div><h1>{{ st.title }}</h1>
+    <div class="sub">{{ st.take_date }} ·
+      <span class="tag {{ 'ok' if st.status=='committed' else 'low' }}">{{ '확정됨' if st.status=='committed' else '진행중' }}</span>
+      {% if st.committed_at %} · 확정 {{ st.committed_at }}{% endif %}</div></div>
+  <div class="actions">
+    <a class="btn" href="{{ url_for('web.stocktake_list') }}">목록</a>
+    <a class="btn" href="{{ url_for('web.export_stocktake_file', stocktake_id=st.id) }}">엑셀 시트 받기</a>
+    {% if st.status != 'committed' %}
+    <form method="post" action="{{ url_for('web.stocktake_commit', stocktake_id=st.id) }}" style="display:inline"
+          onsubmit="return confirm('실사를 확정할까요?\n차이가 있는 품목에 조정 전표가 만들어지고 재고가 실물에 맞춰집니다.\n확정 후에는 되돌릴 수 없습니다.')" data-once>
+      <button class="btn primary">실사 확정</button></form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="cards">
+  <div class="card"><div class="lbl">대상 품목</div><div class="val">{{ summary.total }}</div></div>
+  <div class="card"><div class="lbl">카운트 완료</div>
+    <div class="val">{{ summary.counted }}</div>
+    <div class="sub">남은 {{ summary.total - summary.counted }}건</div></div>
+  <div class="card {{ 'alert' if summary.diff_count else 'good' }}">
+    <div class="lbl">차이 발생</div><div class="val">{{ summary.diff_count }}</div>
+    <div class="sub">수량 차 {{ summary.diff_qty|number }}</div></div>
+  <div class="card {{ 'alert' if summary.diff_value < 0 else '' }}">
+    <div class="lbl">금액 영향</div>
+    <div class="val" style="font-size:20px">{{ summary.diff_value|number }}<small>원</small></div></div>
+</div>
+
+{% if st.status != 'committed' %}
+<div class="help">
+  <b>실물 수량만 입력하세요.</b> 입력하는 즉시 자동 저장되고 차이가 계산됩니다.
+  칸을 비워두면 '미카운트'로 남아 조정에서 제외됩니다.
+  <span class="kbd">Enter</span> 로 다음 칸으로 넘어갑니다.
+  모두 세었으면 우측 상단 <b>실사 확정</b>을 누르세요.
+</div>
+{% endif %}
+
+<div class="panel"><div class="panel-bd">
+  <div class="inline">
+    <div class="field" style="flex:1"><label>품목 찾기</label>
+      <input type="text" id="filter" placeholder="품목코드 · 품목명 · 위치" data-search></div>
+    <label class="check"><input type="checkbox" id="onlyDiff"> 차이 있는 것만</label>
+    <label class="check"><input type="checkbox" id="onlyBlank"> 미카운트만</label>
+  </div>
+</div></div>
+
+<div class="panel">
+  <div class="panel-bd flush table-scroll">
+    <table id="takeTbl">
+      <thead><tr><th>품목코드</th><th>품목명</th><th>규격</th><th>위치</th>
+        <th class="r">전산재고</th><th class="r" style="width:120px">실사수량</th>
+        <th class="r">차이</th><th class="r">금액 영향</th><th>비고</th></tr></thead>
+      <tbody>
+      {% for l in lines %}
+        <tr data-item="{{ l.item_id }}"
+            data-search="{{ (l.code ~ ' ' ~ l.name ~ ' ' ~ (l.spec or '') ~ ' ' ~ (l.location or ''))|lower }}"
+            data-counted="{{ '1' if l.counted_qty is not none else '0' }}">
+          <td class="mono nowrap">{{ l.code }}</td>
+          <td class="bold">{{ l.name }}</td>
+          <td class="muted small">{{ l.spec }}</td>
+          <td class="muted small">{{ l.location }}</td>
+          <td class="r muted sysqty">{{ l.system_qty|number }}</td>
+          <td class="r">
+            {% if st.status == 'committed' %}
+              <b>{{ l.counted_qty|number if l.counted_qty is not none else '-' }}</b>
+            {% else %}
+              <input type="number" class="cnt" step="any" min="0" style="text-align:right;padding:5px 8px"
+                     value="{{ l.counted_qty if l.counted_qty is not none else '' }}"
+                     data-item="{{ l.item_id }}" data-sys="{{ l.system_qty }}" data-cost="{{ l.unit_cost }}">
+            {% endif %}
+          </td>
+          <td class="r bold diff"></td>
+          <td class="r small muted amt"></td>
+          <td class="small muted">{{ l.memo }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+var TAKE_ID = {{ st.id }};
+
+function paintRow(tr, counted, sys, cost){
+  var dEl = tr.querySelector(".diff"), aEl = tr.querySelector(".amt");
+  if(counted === "" || counted === null || isNaN(Number(counted))){
+    dEl.textContent = ""; aEl.textContent = ""; tr.classList.remove("row-out","row-low");
+    tr.dataset.counted = "0"; tr.dataset.diff = "0"; return;
+  }
+  var diff = Number(counted) - Number(sys);
+  tr.dataset.counted = "1";
+  tr.dataset.diff = (Math.abs(diff) > 1e-9) ? "1" : "0";
+  dEl.textContent = diff === 0 ? "0" : (diff > 0 ? "+" : "") + App.num(diff);
+  dEl.style.color = diff === 0 ? "var(--muted)" : (diff > 0 ? "var(--ok)" : "var(--out)");
+  aEl.textContent = diff === 0 ? "" : App.num(diff * Number(cost||0)) + "원";
+  tr.classList.toggle("row-out", diff < 0);
+  tr.classList.toggle("row-low", diff > 0);
+}
+
+document.querySelectorAll(".cnt").forEach(function(inp){
+  var tr = inp.closest("tr");
+  paintRow(tr, inp.value, inp.dataset.sys, inp.dataset.cost);
+
+  inp.addEventListener("input", function(){
+    paintRow(tr, this.value, this.dataset.sys, this.dataset.cost);
+  });
+  inp.addEventListener("change", function(){
+    var self = this;
+    App.api("/api/stocktake/" + TAKE_ID + "/count",
+            {json:{item_id:self.dataset.item, counted_qty:self.value}})
+      .then(function(){ self.style.borderColor = "#68b984";
+                        setTimeout(function(){ self.style.borderColor = ""; }, 700); })
+      .catch(function(e){ App.toast(e.message, "err"); self.style.borderColor = "#c53030"; });
+  });
+  inp.addEventListener("keydown", function(e){
+    if(e.key === "Enter"){
+      e.preventDefault(); this.blur();
+      var all = Array.prototype.filter.call(document.querySelectorAll(".cnt"),
+                  function(x){ return x.closest("tr").style.display !== "none"; });
+      var i = all.indexOf(this);
+      if(i > -1 && all[i+1]){ all[i+1].focus(); all[i+1].select(); }
+    }
+  });
+});
+
+function applyFilter(){
+  var q = document.getElementById("filter").value.trim().toLowerCase();
+  var onlyDiff = document.getElementById("onlyDiff").checked;
+  var onlyBlank = document.getElementById("onlyBlank").checked;
+  document.querySelectorAll("#takeTbl tbody tr").forEach(function(tr){
+    var ok = (!q || tr.dataset.search.indexOf(q) > -1)
+          && (!onlyDiff  || tr.dataset.diff === "1")
+          && (!onlyBlank || tr.dataset.counted === "0");
+    tr.style.display = ok ? "" : "none";
+  });
+}
+["filter","onlyDiff","onlyBlank"].forEach(function(id){
+  document.getElementById(id).addEventListener("input", applyFilter);
+  document.getElementById(id).addEventListener("change", applyFilter);
+});
+</script>
+{% endblock %}

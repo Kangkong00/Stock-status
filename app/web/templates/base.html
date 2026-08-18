@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}재고관리{% endblock %}{% if company %} · {{ company }}{% endif %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%231f3a5f'/><path d='M8 11h16M8 16h16M8 21h10' stroke='white' stroke-width='2.4' stroke-linecap='round'/></svg>">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">재고관리{% if company %} <span>{{ company }}</span>{% endif %}</div>
+  <nav class="nav">
+    <a href="{{ url_for('web.dashboard') }}" class="{{ 'on' if active=='dash' }}">대시보드</a>
+    <a href="{{ url_for('web.stock') }}"     class="{{ 'on' if active=='stock' }}">재고현황</a>
+    <a href="{{ url_for('web.register') }}"  class="{{ 'on' if active=='reg' }}">입출고 등록</a>
+    <a href="{{ url_for('web.pending') }}"   class="{{ 'on' if active=='pending' }}">확인 대기{% if nav_pending %}<span class="badge">{{ nav_pending }}</span>{% endif %}</a>
+    <a href="{{ url_for('web.history') }}"   class="{{ 'on' if active=='hist' }}">입출고 내역</a>
+    <a href="{{ url_for('web.stocktake_list') }}" class="{{ 'on' if active=='take' }}">재고실사</a>
+    <a href="{{ url_for('web.upload') }}"    class="{{ 'on' if active=='upload' }}">엑셀 업로드</a>
+    <a href="{{ url_for('web.settings') }}"  class="{{ 'on' if active=='set' }}">설정</a>
+  </nav>
+</div>
+
+<div class="wrap">
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in msgs %}
+      <div class="flash {{ cat }}"><div>{{ msg|safe }}</div><span class="x">&times;</span></div>
+    {% endfor %}
+  {% endwith %}
+  {% block body %}{% endblock %}
+</div>
+
+<div id="toasts"></div>
+{% block script %}{% endblock %}
+</body>
+</html>

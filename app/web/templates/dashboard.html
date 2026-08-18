@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% block title %}대시보드{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <div>
+    <h1>대시보드</h1>
+    <div class="sub">
+      {{ now }} 기준
+      {% if s.last_txn_date %}· 최종 입출고 {{ s.last_txn_date }}{% endif %}
+    </div>
+  </div>
+  <div class="actions">
+    <a class="btn" href="{{ url_for('web.export_stock_file') }}">재고현황 엑셀 받기</a>
+    <a class="btn primary" href="{{ url_for('web.register') }}">입출고 등록</a>
+  </div>
+</div>
+
+<div class="cards">
+  <a class="card" href="{{ url_for('web.stock') }}">
+    <div class="lbl">관리 품목</div>
+    <div class="val">{{ s.item_count|number }}<small>종</small></div>
+    <div class="sub">총 {{ s.total_qty|number }}개 보유</div>
+  </a>
+  <a class="card {{ 'alert' if s.alert_count else 'good' }}" href="{{ url_for('web.stock', status='ALERT') }}">
+    <div class="lbl">발주 필요</div>
+    <div class="val">{{ s.alert_count|number }}<small>건</small></div>
+    <div class="sub">품절 {{ s.out_count|number }} · 기준도달 {{ s.low_count|number }}</div>
+  </a>
+  <a class="card {{ 'warn' if s.pending_count else '' }}" href="{{ url_for('web.pending') }}">
+    <div class="lbl">확인 대기</div>
+    <div class="val">{{ s.pending_count|number }}<small>건</small></div>
+    <div class="sub">{{ '클릭 한 번이면 처리됩니다' if s.pending_count else '밀린 것이 없습니다' }}</div>
+  </a>
+  <div class="card">
+    <div class="lbl">오늘 입출고</div>
+    <div class="val">{{ s.today_txn|number }}<small>건</small></div>
+    <div class="sub">입고 {{ s.today_in|number }} · 출고 {{ s.today_out|number }}</div>
+  </div>
+  <div class="card">
+    <div class="lbl">재고 자산</div>
+    <div class="val">{{ (s.total_value/10000)|number(0) }}<small>만원</small></div>
+    <div class="sub">{{ s.total_value|number }}원</div>
+  </div>
+</div>
+
+{# ---------------- 발주 필요: 화면의 주인공 ---------------- #}
+<div class="panel">
+  <div class="panel-hd">
+    <h2>지금 발주해야 할 품목
+      {% if reorder %}<span class="tag out">{{ reorder|length }}</span>{% endif %}
+    </h2>
+    <div>
+      {% if reorder %}<span class="hint">재고기준에 도달했거나 품절된 품목입니다</span>{% endif %}
+      <a class="btn sm" href="{{ url_for('web.stock', status='ALERT') }}">전체 보기</a>
+    </div>
+  </div>
+  {% if reorder %}
+  <div class="panel-bd flush table-scroll">
+    <table>
+      <thead><tr>
+        <th>품목코드</th><th>품목명</th><th>규격</th>
+        <th class="r">현재고</th><th class="r">재고기준</th>
+        <th class="c">수준</th><th class="r">권장발주</th>
+        <th class="r">소진예상</th><th class="c">상태</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for r in reorder[:12] %}
+        <tr class="{{ 'row-out' if r.stock_status=='OUT' else 'row-low' }}">
+          <td class="mono nowrap">{{ r.code }}</td>
+          <td class="bold">{{ r.name }}</td>
+          <td class="muted small">{{ r.spec }}</td>
+          <td class="r bold">{{ r.on_hand|number }} <span class="muted small">{{ r.unit }}</span></td>
+          <td class="r muted">{{ r.reorder_point|number }}</td>
+          <td>
+            <div class="bar" title="재고기준 대비 {{ r.on_hand|number }}/{{ r.reorder_point|number }}">
+              <i class="{{ 'out' if r.stock_status=='OUT' else 'low' }}"
+                 style="width:{{ r.level_pct }}%"></i>
+            </div>
+          </td>
+          <td class="r bold">{{ r.suggest_qty|number }} <span class="muted small">{{ r.unit }}</span></td>
+          <td class="r muted small">{% if r.days_left is not none %}{{ r.days_left }}일{% else %}-{% endif %}</td>
+          <td class="c">
+            <span class="tag {{ 'out' if r.stock_status=='OUT' else 'low' }}">
+              {{ '품절' if r.stock_status=='OUT' else '기준도달' }}</span>
+          </td>
+          <td class="nowrap">
+            <a class="btn sm" href="{{ url_for('web.register', item_id=r.item_id, type='IN') }}">입고</a>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if reorder|length > 12 %}
+    <div class="panel-bd" style="border-top:1px solid var(--line)">
+      <a href="{{ url_for('web.stock', status='ALERT') }}">외 {{ reorder|length - 12 }}건 더 보기 →</a>
+    </div>
+  {% endif %}
+  {% else %}
+  <div class="empty">
+    <div class="big">발주가 필요한 품목이 없습니다</div>
+    <div class="small">모든 품목이 재고기준 이상입니다.</div>
+  </div>
+  {% endif %}
+</div>
+
+<div class="grid g2">
+  {# ---------------- 확인 대기 ---------------- #}
+  <div class="panel">
+    <div class="panel-hd">
+      <h2>확인 대기</h2>
+      <span class="hint">상품명을 못 찾은 건</span>
+    </div>
+    {% if pending %}
+    <div class="panel-bd flush table-scroll">
+      <table>
+        <thead><tr><th>일자</th><th>원문 상품명</th><th class="r">수량</th><th>추천 후보</th></tr></thead>
+        <tbody>
+        {% for p in pending[:6] %}
+          <tr>
+            <td class="muted small nowrap">{{ p.txn_date }}</td>
+            <td>{{ p.raw_name }}</td>
+            <td class="r">{{ p.qty|number }}</td>
+            <td class="small">
+              {% if p.candidates %}
+                {% for c in p.candidates[:2] %}<span class="pill"><b>{{ c.code }}</b> {{ '%.0f'|format(c.score*100) }}%</span>{% endfor %}
+              {% else %}<span class="muted">후보 없음</span>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="panel-bd" style="border-top:1px solid var(--line)">
+      <a class="btn primary" href="{{ url_for('web.pending') }}">확인하러 가기 ({{ s.pending_count }}건)</a>
+      <span class="muted small" style="margin-left:8px">한 번 연결하면 다음부터 자동 처리됩니다</span>
+    </div>
+    {% else %}
+    <div class="empty"><div class="big">밀린 확인 건이 없습니다</div>
+      <div class="small">올라온 상품명이 전부 자동으로 매칭됐습니다.</div></div>
+    {% endif %}
+  </div>
+
+  {# ---------------- 최근 입출고 ---------------- #}
+  <div class="panel">
+    <div class="panel-hd">
+      <h2>최근 입출고</h2>
+      <a class="btn sm" href="{{ url_for('web.history') }}">전체 내역</a>
+    </div>
+    {% if recent %}
+    <div class="panel-bd flush table-scroll">
+      <table>
+        <thead><tr><th>일자</th><th>구분</th><th>품목</th><th class="r">수량</th></tr></thead>
+        <tbody>
+        {% for t in recent[:8] %}
+          <tr>
+            <td class="muted small nowrap">{{ t.txn_date }}</td>
+            <td><span class="tag {{ {'IN':'in','OUT':'outq','ADJ':'adj'}[t.txn_type] }}">{{ t.txn_type|txnkind }}</span></td>
+            <td>{{ t.name }} <span class="muted small">{{ t.spec }}</span></td>
+            <td class="r bold">{{ t.signed_qty|number }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty"><div class="big">입출고 기록이 없습니다</div>
+      <div class="small">엑셀 업로드나 직접 입력으로 시작하세요.</div></div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid g2">
+  {# ---------------- 30일 추이 ---------------- #}
+  <div class="panel">
+    <div class="panel-hd"><h2>최근 30일 입출고 추이</h2>
+      <span class="hint">위=입고 / 아래=출고</span></div>
+    <div class="panel-bd">
+      {% if trend_max > 0 %}
+        <div class="spark" title="입고">
+          {% for d in trend %}<i style="height:{{ (d.in_qty / trend_max * 100)|round(1) }}%" title="{{ d.txn_date }} 입고 {{ d.in_qty|number }}"></i>{% endfor %}
+        </div>
+        <div class="spark" style="height:34px;margin-top:5px">
+          {% for d in trend %}<i class="o" style="height:{{ (d.out_qty / trend_max * 100)|round(1) }}%" title="{{ d.txn_date }} 출고 {{ d.out_qty|number }}"></i>{% endfor %}
+        </div>
+        <div class="small muted" style="display:flex;justify-content:space-between;margin-top:6px">
+          <span>{{ trend[0].txn_date }}</span><span>최대 {{ trend_max|number }}</span><span>{{ trend[-1].txn_date }}</span>
+        </div>
+      {% else %}
+        <div class="muted small">최근 30일 입출고가 없습니다.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ---------------- 분류별 ---------------- #}
+  <div class="panel">
+    <div class="panel-hd"><h2>분류별 재고</h2></div>
+    {% if categories %}
+    <div class="panel-bd flush table-scroll">
+      <table>
+        <thead><tr><th>분류</th><th class="r">품목수</th><th class="r">수량</th><th class="r">재고금액</th><th class="r">경고</th></tr></thead>
+        <tbody>
+        {% for c in categories %}
+          <tr>
+            <td><a href="{{ url_for('web.stock', category=c.category if c.category != '(미분류)' else '') }}">{{ c.category }}</a></td>
+            <td class="r">{{ c.item_count|number }}</td>
+            <td class="r">{{ c.qty|number }}</td>
+            <td class="r">{{ c.value|number }}</td>
+            <td class="r">{% if c.alert_count %}<span class="tag out">{{ c.alert_count }}</span>{% else %}<span class="muted">-</span>{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<div class="empty"><div class="small">등록된 품목이 없습니다.</div></div>{% endif %}
+  </div>
+</div>
+
+{% if not s.item_count %}
+<div class="panel">
+  <div class="panel-hd"><h2>시작하기</h2></div>
+  <div class="panel-bd">
+    <div class="step"><span class="n">1</span>
+      <div><b>기존 재고현황 엑셀을 올리세요.</b>
+        <span class="muted small">열 이름은 자동으로 인식하고, 반영 전에 미리 확인할 수 있습니다.</span></div>
+      <a class="btn primary sm" href="{{ url_for('web.upload') }}" style="margin-left:auto">엑셀 업로드</a>
+    </div>
+    <div class="step off"><span class="n">2</span>
+      <div><b>품목마다 재고기준을 정하세요.</b>
+        <span class="muted small">이 수량 이하로 떨어지면 대시보드와 메일로 알려드립니다.</span></div>
+    </div>
+    <div class="step off"><span class="n">3</span>
+      <div><b>메일 리포트를 켜세요.</b>
+        <span class="muted small">매일 아침 발주 필요 목록이 자동으로 도착합니다.</span></div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% block title %}입출고 등록{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <div><h1>입출고 등록</h1>
+    <div class="sub">품목코드·바코드를 찍거나 상품명을 입력하세요. 시스템이 찾아냅니다.</div></div>
+  <div class="actions"><a class="btn" href="{{ url_for('web.upload') }}">엑셀로 한꺼번에 올리기</a></div>
+</div>
+
+<div class="grid g2" style="grid-template-columns:minmax(340px,1.1fr) minmax(320px,1fr)">
+
+  <div class="panel">
+    <div class="panel-hd"><h2>등록</h2>
+      <span class="hint">저장 후에도 입력창이 유지돼 연속 등록할 수 있습니다</span></div>
+    <div class="panel-bd">
+      <div class="btn-group" style="margin-bottom:14px">
+        <button type="button" class="btn lg" id="btnIn"  onclick="setType('IN')">입고</button>
+        <button type="button" class="btn lg" id="btnOut" onclick="setType('OUT')">출고</button>
+      </div>
+
+      <form id="regForm" onsubmit="return submitTxn(event)" autocomplete="off">
+        <input type="hidden" name="txn_type" id="fType" value="{{ txn_type }}">
+        <input type="hidden" name="item_id" id="fItemId" value="{{ preset.item_id if preset else '' }}">
+
+        <div class="field">
+          <label>품목 — 코드 / 바코드 / 상품명</label>
+          <input type="text" id="fSearch" name="raw_name" placeholder="예: PL-0012  또는  모나미 볼펜 검정 0.5mm"
+                 value="{{ (preset.code ~ ' ' ~ preset.name) if preset else '' }}" autofocus>
+          <div id="picked" hidden style="margin-top:8px;padding:10px 12px;background:#eef6ff;
+               border:1px solid #bcd8f7;border-radius:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+              <div>
+                <b id="pkName"></b> <span class="muted small" id="pkSpec"></span><br>
+                <span class="mono small" id="pkCode"></span>
+                <span class="small" style="margin-left:8px">현재고 <b id="pkQty"></b> <span id="pkUnit"></span></span>
+                <span id="pkTag"></span>
+              </div>
+              <button type="button" class="btn sm" onclick="clearPick()">변경</button>
+            </div>
+          </div>
+          <div id="sug" style="margin-top:6px"></div>
+        </div>
+
+        <div class="grid g2">
+          <div class="field"><label>수량 *</label>
+            <input type="number" name="qty" id="fQty" step="any" min="0" required placeholder="0"></div>
+          <div class="field"><label>일자</label>
+            <input type="date" name="txn_date" id="fDate" value="{{ today }}"></div>
+        </div>
+
+        <details id="moreBox">
+          <summary class="muted small" style="cursor:pointer;margin-bottom:10px">
+            거래처 · 전표번호 · 단가 · 비고 입력</summary>
+          <div class="grid g2">
+            <div class="field"><label>거래처</label><input type="text" name="partner" id="fPartner"></div>
+            <div class="field"><label>전표번호</label><input type="text" name="doc_no" id="fDoc"></div>
+          </div>
+          <div class="grid g2">
+            <div class="field"><label>단가 (원)</label><input type="number" name="unit_cost" id="fCost" step="any" min="0"></div>
+            <div class="field"><label>비고</label><input type="text" name="memo" id="fMemo"></div>
+          </div>
+        </details>
+
+        <div style="margin-top:14px">
+          <button type="submit" class="btn primary lg" id="btnSave" style="width:100%">저장 <span class="kbd" style="margin-left:6px">Ctrl+Enter</span></button>
+        </div>
+      </form>
+
+      <div id="result" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hd"><h2>방금 등록한 내역</h2>
+      <a class="btn sm" href="{{ url_for('web.history') }}">전체 내역</a></div>
+    <div class="panel-bd flush table-scroll">
+      <table id="recentTbl">
+        <thead><tr><th>일자</th><th>구분</th><th>품목</th><th class="r">수량</th><th></th></tr></thead>
+        <tbody>
+        {% for t in recent %}
+          <tr data-txn="{{ t.id }}">
+            <td class="muted small nowrap">{{ t.txn_date }}</td>
+            <td><span class="tag {{ {'IN':'in','OUT':'outq','ADJ':'adj'}[t.txn_type] }}">{{ t.txn_type|txnkind }}</span></td>
+            <td>{{ t.name }} <span class="muted small">{{ t.spec }}</span></td>
+            <td class="r bold">{{ t.signed_qty|number }}</td>
+            <td><button class="btn sm danger" onclick="voidTxn({{ t.id }})">취소</button></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5" class="empty small">아직 등록된 내역이 없습니다.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block script %}
+<script>
+var picked = null, timer = null;
+
+function setType(t){
+  document.getElementById("fType").value = t;
+  document.getElementById("btnIn").className  = "btn lg" + (t==="IN"  ? " ok" : "");
+  document.getElementById("btnOut").className = "btn lg" + (t==="OUT" ? " primary" : "");
+}
+setType(document.getElementById("fType").value || "IN");
+
+{% if preset %}
+pick({item_id:{{ preset.item_id }}, code:{{ preset.code|tojson }}, name:{{ preset.name|tojson }},
+      spec:{{ preset.spec|tojson }}, unit:{{ preset.unit|tojson }},
+      on_hand:{{ preset.on_hand }}, status:{{ preset.stock_status|tojson }},
+      unit_cost:{{ preset.unit_cost }}});
+{% endif %}
+
+function pick(it){
+  picked = it;
+  document.getElementById("fItemId").value = it.item_id;
+  document.getElementById("pkName").textContent = it.name;
+  document.getElementById("pkSpec").textContent = it.spec || "";
+  document.getElementById("pkCode").textContent = it.code;
+  document.getElementById("pkQty").textContent  = App.num(it.on_hand);
+  document.getElementById("pkUnit").textContent = it.unit || "";
+  var tagmap = {OUT:["out","품절"], LOW:["low","기준도달"], OK:["ok","정상"]};
+  var t = tagmap[it.status] || ["gray",""];
+  document.getElementById("pkTag").innerHTML = t[1] ? " <span class='tag "+t[0]+"'>"+t[1]+"</span>" : "";
+  document.getElementById("picked").hidden = false;
+  document.getElementById("sug").innerHTML = "";
+  document.getElementById("fSearch").value = it.code + " " + it.name + (it.spec ? " " + it.spec : "");
+  if(it.unit_cost && !document.getElementById("fCost").value)
+    document.getElementById("fCost").value = it.unit_cost;
+  document.getElementById("fQty").focus();
+}
+
+function clearPick(){
+  picked = null;
+  document.getElementById("fItemId").value = "";
+  document.getElementById("picked").hidden = true;
+  var s = document.getElementById("fSearch"); s.value = ""; s.focus();
+}
+
+document.getElementById("fSearch").addEventListener("input", function(){
+  var q = this.value.trim();
+  if(picked){ picked = null; document.getElementById("fItemId").value = "";
+              document.getElementById("picked").hidden = true; }
+  clearTimeout(timer);
+  if(q.length < 1){ document.getElementById("sug").innerHTML = ""; return; }
+  timer = setTimeout(function(){ search(q); }, 180);
+});
+
+function search(q){
+  App.api("/api/search?q=" + encodeURIComponent(q)).then(function(d){
+    var box = document.getElementById("sug");
+    if(!d.items.length){
+      box.innerHTML = "<div class='muted small' style='padding:7px 2px'>"
+        + "일치하는 품목이 없습니다. 이대로 저장하면 <b>확인 대기</b>로 넘어갑니다.</div>";
+      return;
+    }
+    box.innerHTML = d.items.map(function(it){
+      var tagmap = {OUT:["out","품절"], LOW:["low","기준도달"], OK:["ok","정상"]};
+      var t = tagmap[it.status] || ["gray",""];
+      return "<div class='card' style='padding:8px 11px;margin-bottom:5px;cursor:pointer' "
+        + "onclick='pick(" + App.esc(JSON.stringify(it)).replace(/'/g,"&#39;") + ")'>"
+        + "<div style='display:flex;justify-content:space-between;gap:10px;align-items:center'>"
+        + "<div><b>" + App.esc(it.name) + "</b> <span class='muted small'>" + App.esc(it.spec||"") + "</span><br>"
+        + "<span class='mono small'>" + App.esc(it.code) + "</span>"
+        + (it.location ? " <span class='muted small'>· " + App.esc(it.location) + "</span>" : "") + "</div>"
+        + "<div class='r nowrap'><b>" + App.num(it.on_hand) + "</b> <span class='muted small'>"
+        + App.esc(it.unit||"") + "</span> " + (t[1] ? "<span class='tag "+t[0]+"'>"+t[1]+"</span>" : "") + "</div>"
+        + "</div></div>";
+    }).join("");
+  }).catch(function(){});
+}
+
+function submitTxn(ev){
+  ev.preventDefault();
+  var data = App.formData(document.getElementById("regForm"));
+  if(picked) data.item_id = picked.item_id; else delete data.item_id;
+  if(!data.qty || Number(data.qty) <= 0){ App.toast("수량을 입력해 주세요.","err"); return false; }
+
+  var btn = document.getElementById("btnSave"); btn.disabled = true;
+  App.api("/api/txn", {json:data}).then(function(d){
+    var res = document.getElementById("result");
+    if(d.status === "posted"){
+      App.toast("등록했습니다. " + d.message, "ok");
+      res.innerHTML = "<div class='flash ok'><div><b>등록 완료</b>" + App.esc(d.message) + "</div></div>";
+      addRecentRow(d, data);
+      document.getElementById("fQty").value = "";
+      if(!picked) clearPick();
+      document.getElementById(picked ? "fQty" : "fSearch").focus();
+    } else {
+      App.toast("표준품목을 찾지 못해 확인 대기로 넘겼습니다.","warn");
+      var c = (d.candidates||[]).map(function(x){
+        return "<span class='pill'><b>"+App.esc(x.code)+"</b> "+App.esc(x.name)+" "
+             + Math.round(x.score*100)+"%</span>"; }).join("");
+      res.innerHTML = "<div class='flash warn'><div><b>확인 대기로 넘겼습니다</b>"
+        + "이름을 못 찾았습니다. <a href='/pending'>확인 대기</a> 화면에서 클릭 한 번으로 연결하면 "
+        + "다음부터 자동 처리됩니다.<br>" + (c || "<span class='muted small'>추천 후보가 없습니다.</span>")
+        + "</div></div>";
+      document.getElementById("fQty").value = "";
+      clearPick();
+    }
+  }).catch(function(e){
+    App.toast(e.message, "err");
+    document.getElementById("result").innerHTML =
+      "<div class='flash err'><div><b>저장 실패</b>" + App.esc(e.message) + "</div></div>";
+  }).then(function(){ btn.disabled = false; });
+  return false;
+}
+
+function addRecentRow(d, data){
+  var tb = document.querySelector("#recentTbl tbody");
+  var empty = tb.querySelector(".empty"); if(empty) empty.closest("tr").remove();
+  var kind = {IN:["in","입고"], OUT:["outq","출고"], ADJ:["adj","조정"]}[data.txn_type] || ["gray",data.txn_type];
+  var sign = data.txn_type === "OUT" ? -1 : 1;
+  var tr = document.createElement("tr");
+  tr.dataset.txn = d.txn_id;
+  tr.innerHTML = "<td class='muted small nowrap'>" + App.esc(data.txn_date || App.today()) + "</td>"
+    + "<td><span class='tag " + kind[0] + "'>" + kind[1] + "</span></td>"
+    + "<td>" + App.esc(d.message.replace(/ · 현재고.*$/, "")) + "</td>"
+    + "<td class='r bold'>" + App.num(sign * Number(data.qty)) + "</td>"
+    + "<td><button class='btn sm danger' onclick='voidTxn(" + d.txn_id + ")'>취소</button></td>";
+  tb.insertBefore(tr, tb.firstChild);
+}
+
+function voidTxn(id){
+  if(!App.confirmAction("이 전표를 취소할까요?\n기록은 지워지지 않고 '취소' 표시로 남습니다.")) return;
+  App.api("/api/txn/" + id + "/void", {json:{reason:"화면에서 취소"}}).then(function(d){
+    App.toast(d.message, "ok");
+    var tr = document.querySelector("[data-txn='" + id + "']");
+    if(tr){ tr.classList.add("voided"); tr.querySelector("button").remove(); }
+  }).catch(function(e){ App.toast(e.message, "err"); });
+}
+
+document.addEventListener("keydown", function(e){
+  if(e.ctrlKey && e.key === "Enter"){ e.preventDefault(); document.getElementById("btnSave").click(); }
+});
+</script>
+{% endblock %}

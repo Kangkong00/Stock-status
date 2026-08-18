@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% block title %}설정{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <div><h1>설정</h1><div class="sub">이메일 리포트, 백업, 알림 기준</div></div>
+</div>
+
+<form method="post" data-once>
+<div class="grid g2" style="grid-template-columns:1fr minmax(300px,.7fr);align-items:start">
+  <div>
+    <div class="panel">
+      <div class="panel-hd"><h2>기본</h2></div>
+      <div class="panel-bd">
+        <div class="grid g2">
+          <div class="field"><label>회사/부서 이름</label>
+            <input type="text" name="company_name" value="{{ s.company_name }}" placeholder="메일 제목과 보고서에 표시됩니다"></div>
+          <div class="field"><label>장기 미사용 기준 (일)</label>
+            <input type="number" name="dormant_days" value="{{ s.dormant_days }}" min="1">
+            <div class="muted small" style="margin-top:4px">이 기간 동안 입출고가 없으면 '장기 미사용'으로 분류합니다.</div></div>
+        </div>
+        <div class="field" style="max-width:280px"><label>백업 보관 개수</label>
+          <input type="number" name="backup_keep" value="{{ s.backup_keep }}" min="1">
+          <div class="muted small" style="margin-top:4px">최근 이 개수만 남기고 오래된 백업은 자동 삭제합니다.</div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd"><h2>이메일 리포트</h2>
+        <span class="hint">{{ '설정 완료' if sched.configured else '아직 설정되지 않았습니다' }}</span></div>
+      <div class="panel-bd">
+        <div class="help">
+          발주가 필요한 품목과 확인 대기 건을 정해진 시각에 메일로 보내드립니다.
+          재고현황 엑셀도 자동으로 첨부됩니다. 보고할 변화가 없는 날은 보내지 않습니다.
+        </div>
+
+        <div class="field"><label>받는 사람 (여러 명이면 쉼표로 구분)</label>
+          <input type="text" name="report_to" value="{{ s.report_to }}" placeholder="hong@example.com, kim@example.com"></div>
+
+        <div class="grid g2">
+          <div class="panel" style="box-shadow:none;margin:0">
+            <div class="panel-bd">
+              <label class="check" style="margin-bottom:9px">
+                <input type="checkbox" name="report_daily_enabled" value="1" {{ 'checked' if s.report_daily_enabled=='1' }}>
+                <b>일일 리포트</b></label>
+              <div class="field" style="margin:0"><label>발송 시각</label>
+                <input type="time" name="report_daily_time" value="{{ s.report_daily_time }}"></div>
+            </div>
+          </div>
+          <div class="panel" style="box-shadow:none;margin:0">
+            <div class="panel-bd">
+              <label class="check" style="margin-bottom:9px">
+                <input type="checkbox" name="report_weekly_enabled" value="1" {{ 'checked' if s.report_weekly_enabled=='1' }}>
+                <b>주간 리포트</b></label>
+              <div class="inline">
+                <div class="field" style="flex:1"><label>요일</label>
+                  <select name="report_weekly_day">
+                    {% for n, d in [('1','월'),('2','화'),('3','수'),('4','목'),('5','금'),('6','토'),('7','일')] %}
+                      <option value="{{ n }}" {{ 'selected' if s.report_weekly_day==n }}>{{ d }}요일</option>
+                    {% endfor %}
+                  </select></div>
+                <div class="field" style="flex:1"><label>시각</label>
+                  <input type="time" name="report_weekly_time" value="{{ s.report_weekly_time }}"></div>
+              </div>
+              <div class="muted small" style="margin-top:6px">주간 리포트에는 장기 미사용 재고와 분류별 요약이 추가됩니다.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sep"></div>
+        <label>메일 서버 (SMTP)</label>
+        <div class="muted small" style="margin-bottom:10px">
+          네이버·구글 메일은 <b>계정 비밀번호가 아니라 '앱 비밀번호'</b>를 발급받아 넣어야 합니다.
+          네이버: 내정보 → 보안설정 → 애플리케이션 비밀번호 · 구글: 계정 → 보안 → 앱 비밀번호
+        </div>
+        <div class="grid g2">
+          <div class="field"><label>SMTP 서버</label>
+            <input type="text" name="smtp_host" value="{{ s.smtp_host }}" list="smtpList" placeholder="smtp.naver.com"></div>
+          <div class="field"><label>포트</label>
+            <input type="number" name="smtp_port" value="{{ s.smtp_port }}" placeholder="587"></div>
+        </div>
+        <div class="grid g2">
+          <div class="field"><label>아이디</label>
+            <input type="text" name="smtp_user" value="{{ s.smtp_user }}" placeholder="계정 아이디 또는 메일주소"></div>
+          <div class="field"><label>비밀번호 (앱 비밀번호)</label>
+            <input type="password" name="smtp_password" placeholder="{{ '●●●●●●●● (저장되어 있음. 바꿀 때만 입력)' if s.smtp_password else '앱 비밀번호를 입력하세요' }}"></div>
+        </div>
+        <div class="grid g2">
+          <div class="field"><label>보안 방식</label>
+            <select name="smtp_security">
+              <option value="starttls" {{ 'selected' if s.smtp_security=='starttls' }}>STARTTLS (포트 587 · 가장 흔함)</option>
+              <option value="ssl" {{ 'selected' if s.smtp_security=='ssl' }}>SSL (포트 465)</option>
+              <option value="none" {{ 'selected' if s.smtp_security=='none' }}>사용 안 함</option>
+            </select></div>
+          <div class="field"><label>보내는 주소</label>
+            <input type="text" name="smtp_from" value="{{ s.smtp_from }}" placeholder="비워두면 아이디를 사용합니다"></div>
+        </div>
+        <datalist id="smtpList">
+          <option value="smtp.naver.com"><option value="smtp.gmail.com">
+          <option value="smtp.daum.net"><option value="smtp.office365.com">
+        </datalist>
+      </div>
+    </div>
+
+    <div style="margin-bottom:16px">
+      <button type="submit" class="btn primary lg">설정 저장</button>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <div class="panel-hd"><h2>메일 시험 발송</h2></div>
+      <div class="panel-bd">
+        <div class="muted small" style="margin-bottom:10px">
+          설정을 <b>저장한 뒤</b> 눌러주세요.</div>
+        <div class="field"><label>테스트 받을 주소 (비우면 위 설정 주소)</label>
+          <input type="text" id="testTo" placeholder="test@example.com"></div>
+        <div class="btn-group">
+          <button type="button" class="btn" onclick="mailTest()">테스트 메일</button>
+          <button type="button" class="btn" onclick="sendNow('daily')">일일 리포트 지금 발송</button>
+          <button type="button" class="btn" onclick="sendNow('weekly')">주간 리포트 지금 발송</button>
+        </div>
+        <div class="sep"></div>
+        <div class="btn-group">
+          <a class="btn sm" href="{{ url_for('web.report_preview', kind='daily') }}" target="_blank">일일 리포트 미리보기</a>
+          <a class="btn sm" href="{{ url_for('web.report_preview', kind='weekly') }}" target="_blank">주간 미리보기</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd"><h2>자동 발송 상태</h2></div>
+      <div class="panel-bd">
+        <table>
+          <tr><td>스케줄러</td><td class="r">
+            <span class="tag {{ 'ok' if sched.running else 'gray' }}">{{ '동작 중' if sched.running else '멈춤' }}</span></td></tr>
+          <tr><td>메일 설정</td><td class="r">
+            <span class="tag {{ 'ok' if sched.configured else 'out' }}">{{ '완료' if sched.configured else '미설정' }}</span></td></tr>
+          <tr><td>마지막 확인</td><td class="r small muted">{{ sched.last_check or '-' }}</td></tr>
+        </table>
+        {% if sched.last_result %}
+          <div class="muted small" style="margin-top:9px">최근 결과: {{ sched.last_result }}</div>{% endif %}
+        {% if sched.recent %}
+          <div class="sep"></div>
+          <label>최근 발송 이력</label>
+          <table>
+            {% for r in sched.recent %}
+              <tr><td class="small">{{ '일일' if r.kind=='daily' else '주간' }} {{ r.period_key }}</td>
+                <td class="r"><span class="tag {{ 'ok' if r.ok else 'out' }}">{{ '성공' if r.ok else '실패' }}</span></td></tr>
+            {% endfor %}
+          </table>
+        {% endif %}
+        <div class="muted small" style="margin-top:10px">
+          자동 발송은 프로그램이 켜져 있을 때만 동작합니다.
+          발송 시각에 PC가 꺼져 있었다면, 켠 뒤 그날 안에 한 번 따라잡아 보냅니다.
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd"><h2>데이터 · 백업</h2></div>
+      <div class="panel-bd">
+        <div class="small muted" style="margin-bottom:5px">데이터 파일 위치</div>
+        <div class="mono small" style="word-break:break-all;background:#f7f9fc;padding:8px;border-radius:6px">{{ db_path }}</div>
+        <div class="muted small" style="margin-top:6px">
+          크기 {{ (db_size/1024)|round(1) }} KB · 이 파일 하나만 복사하면 전체 데이터가 옮겨집니다.</div>
+        <div style="margin-top:11px"><button type="button" class="btn" onclick="backupNow()">지금 백업</button></div>
+        {% if backups %}
+          <div class="sep"></div>
+          <label>자동 백업 ({{ backups|length }}개)</label>
+          <div class="muted small">
+            {% for b in backups[:8] %}<div class="mono" style="font-size:11.5px">{{ b.name }}</div>{% endfor %}
+          </div>
+          <div class="muted small" style="margin-top:7px">
+            임포트·실사 확정 직전마다 자동으로 남습니다. 되돌리려면 이 파일을 위 경로에 덮어쓰세요.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd"><h2>단축키</h2></div>
+      <div class="panel-bd small">
+        <table>
+          <tr><td><span class="kbd">Alt</span>+<span class="kbd">1~5</span></td><td class="muted">화면 이동</td></tr>
+          <tr><td><span class="kbd">/</span></td><td class="muted">검색창으로</td></tr>
+          <tr><td><span class="kbd">Ctrl</span>+<span class="kbd">Enter</span></td><td class="muted">입출고 저장</td></tr>
+          <tr><td><span class="kbd">Enter</span></td><td class="muted">실사 다음 칸</td></tr>
+          <tr><td><span class="kbd">Esc</span></td><td class="muted">창 닫기</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+</form>
+{% endblock %}
+
+{% block script %}
+<script>
+function mailTest(){
+  App.toast("발송 중...", "", 1500);
+  App.api("/api/mail/test", {json:{to:document.getElementById("testTo").value}})
+    .then(function(d){ App.toast(d.message, "ok"); })
+    .catch(function(e){ App.toast(e.message, "err", 9000); });
+}
+function sendNow(kind){
+  if(!App.confirmAction((kind==="daily"?"일일":"주간") + " 리포트를 지금 발송할까요?")) return;
+  App.toast("발송 중...", "", 1500);
+  App.api("/api/mail/send-now", {json:{kind:kind}})
+    .then(function(d){ App.toast(d.message, "ok"); })
+    .catch(function(e){ App.toast(e.message, "err", 9000); });
+}
+function backupNow(){
+  App.api("/api/backup", {json:{}})
+    .then(function(d){ App.toast(d.message, "ok"); setTimeout(function(){location.reload();}, 900); })
+    .catch(function(e){ App.toast(e.message, "err"); });
+}
+</script>
+{% endblock %}

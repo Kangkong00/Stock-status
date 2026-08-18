@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}입출고 내역{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <div><h1>입출고 내역</h1>
+    <div class="sub">{{ totals.count }}건 · 입고 {{ totals.in|number }} · 출고 {{ totals.out|number }}</div></div>
+  <div class="actions">
+    <a class="btn" href="{{ url_for('web.export_txn_file', **{'from': d_from, 'to': d_to}) }}">엑셀 받기</a>
+  </div>
+</div>
+
+<div class="panel"><div class="panel-bd">
+  <form class="inline" method="get">
+    <div class="field"><label>시작일</label><input type="date" name="from" value="{{ d_from }}"></div>
+    <div class="field"><label>종료일</label><input type="date" name="to" value="{{ d_to }}"></div>
+    <div class="field" style="min-width:110px"><label>구분</label>
+      <select name="type"><option value="">전체</option>
+        <option value="IN"  {{ 'selected' if txn_type=='IN' }}>입고</option>
+        <option value="OUT" {{ 'selected' if txn_type=='OUT' }}>출고</option>
+        <option value="ADJ" {{ 'selected' if txn_type=='ADJ' }}>실사조정</option>
+      </select></div>
+    <div class="field" style="flex:1;min-width:170px"><label>검색</label>
+      <input type="text" name="keyword" value="{{ keyword }}" placeholder="품목 · 원문상품명 · 거래처 · 전표번호" data-search></div>
+    <div class="field"><label class="check"><input type="checkbox" name="voided" value="1" {{ 'checked' if show_voided }}> 취소분 포함</label></div>
+    <button class="btn primary">조회</button>
+    <a class="btn" href="{{ url_for('web.history') }}">초기화</a>
+  </form>
+</div></div>
+
+<div class="panel">
+  {% if rows %}
+  <div class="panel-bd flush table-scroll">
+    <table>
+      <thead><tr>
+        <th>일자</th><th>구분</th><th>품목코드</th><th>품목명</th><th>규격</th>
+        <th class="r">수량</th><th class="r">단가</th><th>거래처</th><th>전표번호</th>
+        <th>원문 상품명</th><th>비고</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for t in rows %}
+        <tr class="{{ 'voided' if t.voided }}" data-txn="{{ t.id }}">
+          <td class="muted small nowrap">{{ t.txn_date }}</td>
+          <td><span class="tag {{ {'IN':'in','OUT':'outq','ADJ':'adj'}[t.txn_type] }}">{{ t.txn_type|txnkind }}</span></td>
+          <td class="mono nowrap"><a href="{{ url_for('web.item_detail', item_id=t.item_id) }}">{{ t.code }}</a></td>
+          <td>{{ t.name }}</td>
+          <td class="muted small">{{ t.spec }}</td>
+          <td class="r bold">{{ t.signed_qty|number }} <span class="muted small">{{ t.unit }}</span></td>
+          <td class="r muted">{{ t.unit_cost|number if t.unit_cost else '' }}</td>
+          <td class="small">{{ t.partner }}</td>
+          <td class="small mono">{{ t.doc_no }}</td>
+          <td class="small muted">{{ t.raw_name }}</td>
+          <td class="small muted">{{ t.memo }}</td>
+          <td>{% if not t.voided %}<button class="btn sm danger" onclick="voidTxn({{ t.id }})">취소</button>{% else %}<span class="tag gray">취소됨</span>{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty"><div class="big">해당 조건의 내역이 없습니다</div>
+    <div class="small">기간이나 검색어를 바꿔보세요.</div></div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+function voidTxn(id){
+  if(!App.confirmAction("이 전표를 취소할까요?\n기록은 지워지지 않고 '취소' 표시로 남습니다.")) return;
+  App.api("/api/txn/"+id+"/void", {json:{reason:"내역 화면에서 취소"}}).then(function(d){
+    App.toast(d.message,"ok"); setTimeout(function(){ location.reload(); }, 500);
+  }).catch(function(e){ App.toast(e.message,"err"); });
+}
+</script>
+{% endblock %}

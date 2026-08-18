@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+{% block title %}엑셀 업로드{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <div><h1>엑셀 업로드</h1>
+    <div class="sub">기존 재고현황 이관과 거래명세서 일괄 등록을 모두 처리합니다.</div></div>
+  <div class="actions">
+    <a class="btn" href="{{ url_for('web.export_template_file') }}">표준 양식 받기</a>
+  </div>
+</div>
+
+<div class="help">
+  <b>열 이름을 맞출 필요가 없습니다.</b> 파일을 올리면 어떤 열이 무엇인지 시스템이 추측해서 보여주고,
+  틀린 부분만 고치시면 됩니다. 반영 전에 <b>시험 실행</b>으로 결과를 미리 확인할 수 있고,
+  실제 반영 직전에는 자동으로 백업이 만들어집니다.
+</div>
+
+{# ---------------- 1단계 ---------------- #}
+<div class="panel">
+  <div class="panel-hd"><h2><span class="pill">1단계</span> 파일 올리기</h2></div>
+  <div class="panel-bd">
+    <form id="upForm" onsubmit="return analyze(event)" enctype="multipart/form-data">
+      <div id="drop" style="border:2px dashed #c3d0de;border-radius:11px;padding:30px 20px;
+           text-align:center;background:#fbfcfe;cursor:pointer">
+        <div class="big bold" style="margin-bottom:5px">파일을 여기로 끌어다 놓으세요</div>
+        <div class="muted small">또는 클릭해서 선택 · .xlsx / .xlsm / .csv 지원</div>
+        <div id="fileName" class="bold" style="margin-top:11px;color:var(--accent)"></div>
+        <input type="file" name="file" id="fileInput" accept=".xlsx,.xlsm,.xltx,.csv,.txt,.tsv" hidden>
+      </div>
+      <div style="margin-top:13px"><button class="btn primary lg" id="btnAnalyze" disabled>파일 분석</button></div>
+    </form>
+    <div class="muted small" style="margin-top:10px">
+      옛날 <b>.xls</b> 파일은 엑셀에서 열어 <b>.xlsx</b> 로 저장한 뒤 올려주세요.
+      비밀번호가 걸린 파일은 먼저 해제해야 합니다.
+    </div>
+  </div>
+</div>
+
+{# ---------------- 2단계 ---------------- #}
+<div class="panel" id="step2" hidden>
+  <div class="panel-hd"><h2><span class="pill">2단계</span> 시트와 열 확인</h2>
+    <span class="hint" id="fileInfo"></span></div>
+  <div class="panel-bd">
+    <div class="grid g2" style="margin-bottom:14px">
+      <div class="field"><label>어떤 시트를 읽을까요</label>
+        <select id="sheetSel"></select></div>
+      <div class="field"><label>무엇을 등록할까요</label>
+        <select id="modeSel" onchange="renderSheet()">
+          <option value="items">품목 마스터 (품목 정보 + 기초재고)</option>
+          <option value="transactions">입출고 내역 (과거 이력 · 거래명세서)</option>
+        </select></div>
+    </div>
+
+    <div id="modeOpts"></div>
+
+    <div class="sep"></div>
+    <label>각 열이 무엇인지 확인해 주세요</label>
+    <div class="muted small" style="margin-bottom:10px">
+      회색으로 표시된 열은 사용하지 않습니다. 필요한 열만 지정하면 됩니다.</div>
+    <div class="table-scroll">
+      <table id="mapTbl">
+        <thead><tr><th style="width:180px">엑셀 열 이름</th><th style="width:230px">이 열의 의미</th><th>미리보기</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div style="margin-top:16px" class="btn-group">
+      <button class="btn" onclick="run(true)">시험 실행 (반영 안 함)</button>
+      <button class="btn primary" onclick="run(false)">실제 반영</button>
+    </div>
+  </div>
+</div>
+
+{# ---------------- 3단계 ---------------- #}
+<div class="panel" id="step3" hidden>
+  <div class="panel-hd"><h2><span class="pill">3단계</span> 결과</h2></div>
+  <div class="panel-bd" id="result"></div>
+</div>
+
+{% endblock %}
+
+{% block script %}
+<script>
+var STAGED = null, FIELDS = {};
+
+// ---------------- 파일 선택 / 드래그
+var drop = document.getElementById("drop"), fi = document.getElementById("fileInput");
+drop.addEventListener("click", function(){ fi.click(); });
+fi.addEventListener("change", function(){ showFile(this.files[0]); });
+["dragenter","dragover"].forEach(function(ev){
+  drop.addEventListener(ev, function(e){ e.preventDefault(); drop.style.background="#eef6ff";
+                                         drop.style.borderColor="var(--accent)"; });
+});
+["dragleave","drop"].forEach(function(ev){
+  drop.addEventListener(ev, function(e){ e.preventDefault(); drop.style.background="#fbfcfe";
+                                         drop.style.borderColor="#c3d0de"; });
+});
+drop.addEventListener("drop", function(e){
+  if(e.dataTransfer.files.length){ fi.files = e.dataTransfer.files; showFile(e.dataTransfer.files[0]); }
+});
+function showFile(f){
+  if(!f) return;
+  document.getElementById("fileName").textContent = f.name + "  (" + App.num(f.size/1024) + " KB)";
+  document.getElementById("btnAnalyze").disabled = false;
+}
+
+// ---------------- 1단계: 분석
+function analyze(ev){
+  ev.preventDefault();
+  var btn = document.getElementById("btnAnalyze");
+  btn.disabled = true; btn.textContent = "분석 중...";
+  fetch("/upload/analyze", {method:"POST", body:new FormData(document.getElementById("upForm")),
+                            headers:{"X-Requested-With":"fetch"}})
+    .then(function(r){ return r.json().then(function(d){ if(!r.ok || d.ok===false) throw new Error(d.error||"분석 실패"); return d; }); })
+    .then(function(d){
+      STAGED = d; FIELDS = d.fields;
+      var sel = document.getElementById("sheetSel");
+      sel.innerHTML = d.sheets.map(function(s, i){
+        return "<option value='"+i+"'>"+App.esc(s.name)+"  ("+s.rows+"행)</option>"; }).join("");
+      document.getElementById("fileInfo").textContent = d.filename + " · 시트 " + d.sheets.length + "개";
+      // 시트 이름으로 모드를 미리 추측한다
+      guessMode(0);
+      document.getElementById("step2").hidden = false;
+      renderSheet();
+      document.getElementById("step2").scrollIntoView({behavior:"smooth", block:"start"});
+    })
+    .catch(function(e){ App.toast(e.message, "err"); })
+    .then(function(){ btn.disabled = false; btn.textContent = "파일 분석"; });
+  return false;
+}
+
+function guessMode(idx){
+  var s = STAGED.sheets[idx], vals = Object.keys(s.mapping).map(function(k){ return s.mapping[k]; });
+  var isTxn = vals.indexOf("in_qty")>-1 || vals.indexOf("out_qty")>-1
+           || (vals.indexOf("txn_date")>-1 && vals.indexOf("qty")>-1);
+  document.getElementById("modeSel").value = isTxn ? "transactions" : "items";
+}
+
+// ---------------- 2단계: 매핑 화면
+function renderSheet(){
+  if(!STAGED) return;
+  var idx = Number(document.getElementById("sheetSel").value);
+  var s = STAGED.sheets[idx], mode = document.getElementById("modeSel").value;
+
+  // 모드별 옵션
+  var opts = "";
+  if(mode === "items"){
+    opts = "<div class='grid g2'>"
+      + "<div class='field'><label>기초재고를 언제 자로 잡을까요</label>"
+      + "<input type='date' id='openDate' value='{{ today }}'>"
+      + "<div class='muted small' style='margin-top:4px'>'현재고' 열을 지정한 경우, 그 수량이 이 날짜의 입고 전표로 만들어집니다.</div></div>"
+      + "<div class='field'><label>이미 있는 품목코드는</label>"
+      + "<select id='updExisting'><option value='1'>정보를 덮어씁니다</option>"
+      + "<option value='0'>건너뜁니다</option></select></div></div>";
+  } else {
+    opts = "<div class='grid g2'>"
+      + "<div class='field'><label>구분 열이 없을 때 기본값</label>"
+      + "<select id='defType'><option value='IN'>입고로 처리</option><option value='OUT'>출고로 처리</option></select>"
+      + "<div class='muted small' style='margin-top:4px'>'입고'/'출고' 열을 각각 지정했다면 이 값은 쓰이지 않습니다. 수량이 음수면 출고로 봅니다.</div></div>"
+      + "<div class='field'><label>일자 열이 비어 있을 때</label>"
+      + "<input type='date' id='defDate' value='{{ today }}'></div></div>";
+  }
+  document.getElementById("modeOpts").innerHTML = opts;
+
+  // 열 매핑 표
+  var allowed = mode === "items"
+    ? ["","code","name","spec","unit","category","barcode","location","reorder_point","reorder_qty","unit_cost","on_hand","memo"]
+    : ["","txn_date","code","name","qty","in_qty","out_qty","unit_cost","partner","doc_no","memo"];
+
+  var tb = document.querySelector("#mapTbl tbody");
+  tb.innerHTML = s.headers.map(function(h, i){
+    var cur = s.mapping[String(i)] || "";
+    if(allowed.indexOf(cur) < 0) cur = "";
+    var sample = s.preview.map(function(r){ return r[i]; })
+                          .filter(function(v){ return v !== "" && v !== undefined; })
+                          .slice(0, 3).join("  |  ");
+    return "<tr class='" + (cur ? "" : "muted") + "'>"
+      + "<td class='bold'>" + (App.esc(h) || "<span class='muted'>(빈 열 " + (i+1) + ")</span>") + "</td>"
+      + "<td><select class='mapsel' data-col='" + i + "' onchange='this.closest(\"tr\").className = this.value ? \"\" : \"muted\"'>"
+      + allowed.map(function(f){
+          return "<option value='"+f+"'"+(f===cur?" selected":"")+">"+App.esc(FIELDS[f]||f)+"</option>"; }).join("")
+      + "</select></td>"
+      + "<td class='small muted'>" + App.esc(sample || "(비어 있음)") + "</td></tr>";
+  }).join("");
+}
+
+document.getElementById("sheetSel").addEventListener("change", function(){
+  // 순서가 중요하다: 모드를 먼저 정하고 그 모드로 열 매핑 표를 그려야 한다.
+  guessMode(Number(this.value));
+  renderSheet();
+});
+
+// ---------------- 3단계: 실행
+function run(dry){
+  var idx = Number(document.getElementById("sheetSel").value);
+  var mode = document.getElementById("modeSel").value;
+  var mapping = {}, seen = {};
+  var dup = null;
+  document.querySelectorAll(".mapsel").forEach(function(sel){
+    if(!sel.value) return;
+    if(seen[sel.value]) dup = FIELDS[sel.value] || sel.value;
+    seen[sel.value] = true;
+    mapping[sel.dataset.col] = sel.value;
+  });
+  if(dup){ App.toast("'"+dup+"' 열이 두 번 지정되었습니다. 하나만 남겨주세요.", "err"); return; }
+
+  var payload = {sheet_index:idx, mode:mode, mapping:mapping, dry_run:dry};
+  if(mode === "items"){
+    payload.opening_stock_date = document.getElementById("openDate").value;
+    payload.update_existing = document.getElementById("updExisting").value === "1";
+  } else {
+    payload.default_type = document.getElementById("defType").value;
+    payload.default_date = document.getElementById("defDate").value;
+  }
+
+  if(!dry && !App.confirmAction("실제로 반영합니다.\n반영 직전에 자동 백업이 만들어집니다. 계속할까요?")) return;
+
+  var box = document.getElementById("result");
+  document.getElementById("step3").hidden = false;
+  box.innerHTML = "<div class='muted'>처리 중입니다...</div>";
+  box.scrollIntoView({behavior:"smooth", block:"center"});
+
+  App.api("/upload/run", {json:payload}).then(function(d){
+    renderReport(d.report, d.dry_run, mode);
+  }).catch(function(e){
+    box.innerHTML = "<div class='flash err'><div><b>실패</b>" + App.esc(e.message) + "</div></div>";
+  });
+}
+
+function renderReport(r, dry, mode){
+  var h = "";
+  h += dry
+    ? "<div class='flash info'><div><b>시험 실행 결과입니다 — 실제로는 아무것도 저장되지 않았습니다.</b>"
+      + "아래 숫자를 확인하고 문제없으면 <b>실제 반영</b>을 누르세요.</div></div>"
+    : "<div class='flash ok'><div><b>반영 완료</b>반영 직전 상태는 백업해 두었습니다. "
+      + "([설정] 화면에서 확인)</div></div>";
+
+  h += "<div class='cards'>";
+  h += card("읽은 행", r.total_rows);
+  if(mode === "items"){
+    h += card("신규 품목", r.items_created);
+    h += card("갱신 품목", r.items_updated);
+    h += card("기초재고 전표", r.txns_posted);
+  } else {
+    h += card("원장 기록", r.txns_posted);
+    h += card("확인 대기", r.pending, r.pending ? "warn" : "");
+  }
+  h += card("건너뜀", r.skipped);
+  h += card("오류", (r.errors||[]).length, (r.errors||[]).length ? "alert" : "");
+  h += "</div>";
+
+  if(mode === "transactions" && (r.txns_posted + r.pending) > 0){
+    var rate = Math.round(r.txns_posted / (r.txns_posted + r.pending) * 100);
+    h += "<div class='panel' style='margin-bottom:14px'><div class='panel-bd'>"
+      + "<b>자동 처리율 " + rate + "%</b> — "
+      + r.txns_posted + "건은 손대지 않고 처리됐고, " + r.pending + "건만 확인이 필요합니다."
+      + "<div class='bar' style='margin-top:8px;height:9px'><i style='width:" + rate + "%'></i></div>"
+      + (r.pending && !dry
+          ? "<div style='margin-top:11px'><a class='btn primary' href='/pending'>확인 대기 " + r.pending + "건 처리하러 가기</a>"
+            + " <span class='muted small' style='margin-left:8px'>한 번 연결하면 다음부터 자동입니다</span></div>"
+          : "")
+      + "</div></div>";
+  }
+
+  if(r.errors && r.errors.length){
+    h += "<div class='panel'><div class='panel-hd'><h2>오류 " + r.errors.length + "건</h2>"
+      + "<span class='hint'>아래 행은 반영되지 않았습니다</span></div><div class='panel-bd'>"
+      + "<div class='mono small' style='max-height:230px;overflow:auto'>"
+      + r.errors.map(function(e){ return App.esc(e); }).join("<br>") + "</div></div></div>";
+  }
+
+  if(r.samples && r.samples.length){
+    h += "<div class='panel'><div class='panel-hd'><h2>처리 예시</h2></div><div class='panel-bd'>"
+      + "<div class='mono small'>"
+      + r.samples.map(function(s){ return App.esc(JSON.stringify(s)); }).join("<br>")
+      + "</div></div></div>";
+  }
+
+  if(!dry){
+    h += "<div class='btn-group' style='margin-top:6px'>"
+      + "<a class='btn primary' href='/stock'>재고현황 보기</a>"
+      + "<a class='btn' href='/'>대시보드</a></div>";
+  }
+  document.getElementById("result").innerHTML = h;
+}
+
+function card(label, val, kind){
+  return "<div class='card " + (kind||"") + "'><div class='lbl'>" + label + "</div>"
+       + "<div class='val'>" + App.num(val||0) + "</div></div>";
+}
+</script>
+{% endblock %}

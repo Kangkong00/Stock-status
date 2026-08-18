@@ -1,0 +1,149 @@
+{# 품목 등록/수정 모달 — 여러 화면에서 공용 #}
+<div class="modal" id="itemModal" hidden>
+  <div class="modal-box">
+    <div class="modal-hd"><h3 id="imTitle">품목 등록</h3>
+      <button class="close-x" data-close="itemModal">&times;</button></div>
+    <form id="itemForm" onsubmit="return App.saveItem(event)">
+      <input type="hidden" name="item_id" id="imId">
+      <div class="modal-bd">
+        <div class="grid g2">
+          <div class="field"><label>품목코드 *</label>
+            <input type="text" name="code" id="imCode" required placeholder="예: PL-0012"></div>
+          <div class="field"><label>품목명 *</label>
+            <input type="text" name="name" id="imName" required placeholder="예: 모나미 볼펜"></div>
+        </div>
+        <div class="grid g3">
+          <div class="field"><label>규격 / 색상</label>
+            <input type="text" name="spec" id="imSpec" placeholder="예: 검정 0.5mm"></div>
+          <div class="field"><label>단위</label>
+            <input type="text" name="unit" id="imUnit" value="EA" placeholder="EA / BOX / 팩"></div>
+          <div class="field"><label>분류</label>
+            <input type="text" name="category" id="imCat" list="catList" placeholder="예: 필기구"></div>
+        </div>
+        <div class="grid g3">
+          <div class="field"><label>재고기준 (이 수량 이하면 알림)</label>
+            <input type="number" name="reorder_point" id="imRP" value="0" step="any" min="0"></div>
+          <div class="field"><label>권장 발주량</label>
+            <input type="number" name="reorder_qty" id="imRQ" value="0" step="any" min="0"></div>
+          <div class="field"><label>매입단가 (원)</label>
+            <input type="number" name="unit_cost" id="imCost" value="0" step="any" min="0"></div>
+        </div>
+        <div class="grid g3">
+          <div class="field"><label>보관위치</label>
+            <input type="text" name="location" id="imLoc" placeholder="예: A-1"></div>
+          <div class="field"><label>바코드</label>
+            <input type="text" name="barcode" id="imBar" placeholder="스캐너로 찍으면 입력됩니다"></div>
+          <div class="field"><label>사용 여부</label>
+            <select name="active" id="imActive"><option value="1">사용</option><option value="0">사용중지</option></select></div>
+        </div>
+        <div class="field"><label>비고</label><textarea name="memo" id="imMemo"></textarea></div>
+
+        <div id="imAliasBox" hidden>
+          <div class="sep"></div>
+          <label>별칭 — 주문서에 이렇게 적혀 오는 이름들</label>
+          <div class="muted small" style="margin-bottom:8px">
+            여기 있는 이름으로 들어오면 자동으로 이 품목에 잡힙니다.
+            확인 대기에서 연결할 때마다 자동으로 추가됩니다.</div>
+          <div id="imAliases"></div>
+          <div class="inline" style="margin-top:9px">
+            <div class="field" style="flex:1"><input type="text" id="imNewAlias" placeholder="별칭 추가 후 Enter"></div>
+            <button type="button" class="btn sm" onclick="App.addAlias()">추가</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-ft">
+        <button type="button" class="btn danger" id="imDelete" hidden onclick="App.deleteItem()">삭제</button>
+        <button type="button" class="btn" data-close="itemModal">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+<datalist id="catList">
+  {% for c in categories or [] %}<option value="{{ c }}">{% endfor %}
+</datalist>
+
+<script>
+(function(){
+  var cur = null;
+  function set(id, v){ var e = document.getElementById(id); if(e) e.value = (v===null||v===undefined)?"":v; }
+
+  App.itemModal = function(id){
+    cur = id;
+    document.getElementById("imTitle").textContent = id ? "품목 수정" : "품목 등록";
+    document.getElementById("imDelete").hidden = !id;
+    document.getElementById("imAliasBox").hidden = !id;
+    document.getElementById("itemForm").reset();
+    set("imId", id||""); set("imUnit","EA"); set("imRP",0); set("imRQ",0); set("imCost",0);
+    if(!id){ App.openModal("itemModal"); return; }
+    App.api("/api/items/"+id).then(function(d){
+      var it = d.item;
+      set("imId",it.id); set("imCode",it.code); set("imName",it.name); set("imSpec",it.spec);
+      set("imUnit",it.unit); set("imCat",it.category); set("imRP",it.reorder_point);
+      set("imRQ",it.reorder_qty); set("imCost",it.unit_cost); set("imLoc",it.location);
+      set("imBar",it.barcode); set("imMemo",it.memo);
+      document.getElementById("imActive").value = it.active ? "1":"0";
+      loadAliases(id);
+      App.openModal("itemModal");
+    }).catch(function(e){ App.toast(e.message,"err"); });
+  };
+
+  function loadAliases(id){
+    App.api("/api/items/"+id+"/aliases").then(function(d){
+      renderAliases(d.aliases);
+    }).catch(function(){ renderAliases([]); });
+  }
+
+  App.saveItem = function(ev){
+    ev.preventDefault();
+    var form = ev.target, data = App.formData(form);
+    var id = data.item_id; delete data.item_id;
+    var url = id ? "/api/items/"+id : "/api/items";
+    App.api(url, {json:data}).then(function(d){
+      App.toast(d.message,"ok"); setTimeout(function(){ location.reload(); }, 500);
+    }).catch(function(e){ App.toast(e.message,"err"); });
+    return false;
+  };
+
+  App.deleteItem = function(){
+    if(!cur) return;
+    if(!App.confirmAction("이 품목을 삭제할까요?\n입출고 이력이 있으면 삭제 대신 '사용중지'로 바뀝니다.")) return;
+    App.api("/api/items/"+cur+"/delete", {json:{}}).then(function(d){
+      App.toast(d.message,"ok"); setTimeout(function(){ location.reload(); }, 500);
+    }).catch(function(e){ App.toast(e.message,"err"); setTimeout(function(){location.reload();},1400); });
+  };
+
+  App.addAlias = function(){
+    var inp = document.getElementById("imNewAlias");
+    if(!cur || !inp.value.trim()) return;
+    App.api("/api/items/"+cur+"/aliases", {json:{raw_name:inp.value.trim()}}).then(function(d){
+      inp.value=""; App.toast(d.message,"ok"); renderAliases(d.aliases);
+    }).catch(function(e){ App.toast(e.message,"err"); });
+  };
+
+  function renderAliases(list){
+    var box = document.getElementById("imAliases");
+    if(!box) return;
+    if(!list || !list.length){ box.innerHTML = "<span class='muted small'>등록된 별칭이 없습니다.</span>"; return; }
+    box.innerHTML = list.map(function(a){
+      var lock = a.source === "self";
+      return "<span class='pill'><b>"+App.esc(a.raw_name)+"</b>"
+        + (a.hit_count ? " <span class='muted'>"+a.hit_count+"회</span>" : "")
+        + (lock ? "" : " <a href='#' onclick=\"App.delAlias("+a.id+");return false\" style='color:#c53030'>&times;</a>")
+        + "</span>";
+    }).join("");
+  }
+  App.renderAliases = renderAliases;
+
+  App.delAlias = function(aid){
+    App.api("/api/aliases/"+aid+"/delete", {json:{}}).then(function(){
+      App.toast("별칭을 삭제했습니다.","ok");
+      if(cur) loadAliases(cur);
+    }).catch(function(e){ App.toast(e.message,"err"); });
+  };
+
+  document.addEventListener("keydown", function(e){
+    if(e.key==="Enter" && e.target.id==="imNewAlias"){ e.preventDefault(); App.addAlias(); }
+  });
+})();
+</script>

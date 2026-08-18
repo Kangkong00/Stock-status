@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}{{ item.name }}{% endblock %}
+{% block body %}
+
+<div class="page-head">
+  <div>
+    <h1>{{ item.name }} <span class="muted" style="font-weight:400;font-size:15px">{{ item.spec }}</span></h1>
+    <div class="sub"><span class="mono">{{ item.code }}</span>
+      {% if item.category %} · {{ item.category }}{% endif %}
+      {% if item.location %} · 보관위치 {{ item.location }}{% endif %}
+      {% if not item.active %} · <span class="tag gray">사용중지</span>{% endif %}</div>
+  </div>
+  <div class="actions">
+    <a class="btn" href="{{ url_for('web.stock') }}">목록</a>
+    <button class="btn" onclick="App.itemModal({{ item.item_id }})">품목 수정</button>
+    <a class="btn ok" href="{{ url_for('web.register', item_id=item.item_id, type='IN') }}">입고</a>
+    <a class="btn primary" href="{{ url_for('web.register', item_id=item.item_id, type='OUT') }}">출고</a>
+  </div>
+</div>
+
+<div class="cards">
+  <div class="card {{ 'alert' if item.stock_status=='OUT' else ('warn' if item.stock_status=='LOW' else 'good') }}">
+    <div class="lbl">현재고</div>
+    <div class="val">{{ item.on_hand|number }}<small>{{ item.unit }}</small></div>
+    <div class="sub">{{ item.stock_status|statusko }} · 재고기준 {{ item.reorder_point|number }}</div>
+  </div>
+  <div class="card"><div class="lbl">재고 금액</div>
+    <div class="val">{{ item.stock_value|number }}<small>원</small></div>
+    <div class="sub">단가 {{ item.unit_cost|number }}원</div></div>
+  <div class="card"><div class="lbl">누적 입고</div>
+    <div class="val">{{ item.total_in|number }}</div>
+    <div class="sub">최종 {{ item.last_in_date or '-' }}</div></div>
+  <div class="card"><div class="lbl">누적 출고</div>
+    <div class="val">{{ item.total_out|number }}</div>
+    <div class="sub">최종 {{ item.last_out_date or '-' }}</div></div>
+  <div class="card"><div class="lbl">일평균 출고</div>
+    <div class="val">{{ avg_out|number(2) }}</div>
+    <div class="sub">{% if avg_out > 0 %}약 {{ (item.on_hand / avg_out)|round(0)|int }}일 후 소진{% else %}최근 90일 출고 없음{% endif %}</div></div>
+</div>
+
+<div class="grid g2" style="grid-template-columns:1fr minmax(300px,.62fr)">
+  <div class="panel">
+    <div class="panel-hd"><h2>입출고 내역</h2>
+      <span class="hint">취소된 전표도 함께 표시됩니다</span></div>
+    {% if txns %}
+    <div class="panel-bd flush table-scroll" style="max-height:620px;overflow-y:auto">
+      <table>
+        <thead><tr><th>일자</th><th>구분</th><th class="r">수량</th><th>거래처</th>
+          <th>전표</th><th>원문 상품명</th><th>비고</th><th></th></tr></thead>
+        <tbody>
+        {% for t in txns %}
+          <tr class="{{ 'voided' if t.voided }}">
+            <td class="muted small nowrap">{{ t.txn_date }}</td>
+            <td><span class="tag {{ {'IN':'in','OUT':'outq','ADJ':'adj'}[t.txn_type] }}">{{ t.txn_type|txnkind }}</span></td>
+            <td class="r bold">{{ t.signed_qty|number }}</td>
+            <td class="small">{{ t.partner }}</td>
+            <td class="small mono">{{ t.doc_no }}</td>
+            <td class="small muted">{{ t.raw_name }}</td>
+            <td class="small muted">{{ t.memo }}</td>
+            <td>{% if not t.voided %}<button class="btn sm danger" onclick="voidTxn({{ t.id }})">취소</button>{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<div class="empty"><div class="small">입출고 기록이 없습니다.</div></div>{% endif %}
+  </div>
+
+  <div>
+    <div class="panel">
+      <div class="panel-hd"><h2>기간 수불</h2></div>
+      <div class="panel-bd">
+        <form class="inline" method="get" style="margin-bottom:13px">
+          <div class="field" style="flex:1"><label>시작</label><input type="date" name="from" value="{{ d_from }}"></div>
+          <div class="field" style="flex:1"><label>종료</label><input type="date" name="to" value="{{ d_to }}"></div>
+          <button class="btn primary">조회</button>
+        </form>
+        <table>
+          <tr><td>기초재고</td><td class="r bold">{{ flow.opening|number }}</td></tr>
+          <tr><td>(+) 입고</td><td class="r" style="color:var(--ok)">{{ flow.in_qty|number }}</td></tr>
+          <tr><td>(−) 출고</td><td class="r" style="color:var(--out)">{{ flow.out_qty|number }}</td></tr>
+          <tr><td>(±) 실사조정</td><td class="r muted">{{ flow.adj_qty|number }}</td></tr>
+          <tr style="background:#f1f5f9"><td class="bold">기말재고</td><td class="r bold big">{{ flow.closing|number }}</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd"><h2>별칭 {{ aliases|length }}개</h2>
+        <span class="hint">이 이름들은 자동으로 잡힙니다</span></div>
+      <div class="panel-bd">
+        <div class="muted small" style="margin-bottom:9px">
+          주문서·명세서에 이렇게 적혀 와도 이 품목으로 인식합니다.
+          확인 대기에서 연결할 때마다 자동으로 늘어납니다.</div>
+        <div id="aliasBox">
+          {% for a in aliases %}
+            <span class="pill"><b>{{ a.raw_name }}</b>
+              {% if a.hit_count %}<span class="muted">{{ a.hit_count }}회</span>{% endif %}
+              {% if a.source != 'self' %}<a href="#" onclick="delAlias({{ a.id }});return false" style="color:#c53030">&times;</a>{% endif %}
+            </span>
+          {% else %}<span class="muted small">등록된 별칭이 없습니다.</span>{% endfor %}
+        </div>
+        <div class="inline" style="margin-top:10px">
+          <div class="field" style="flex:1"><input type="text" id="newAlias" placeholder="별칭 추가 후 Enter"></div>
+          <button class="btn sm" onclick="addAlias()">추가</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% include "_item_modal.html" %}
+{% endblock %}
+
+{% block script %}
+<script>
+var ITEM_ID = {{ item.item_id }};
+function voidTxn(id){
+  if(!App.confirmAction("이 전표를 취소할까요?\n기록은 지워지지 않고 '취소' 표시로 남습니다.")) return;
+  App.api("/api/txn/"+id+"/void", {json:{reason:"품목 화면에서 취소"}}).then(function(d){
+    App.toast(d.message,"ok"); setTimeout(function(){location.reload();}, 500);
+  }).catch(function(e){ App.toast(e.message,"err"); });
+}
+function addAlias(){
+  var inp = document.getElementById("newAlias");
+  if(!inp.value.trim()) return;
+  App.api("/api/items/"+ITEM_ID+"/aliases", {json:{raw_name:inp.value.trim()}}).then(function(d){
+    App.toast(d.message,"ok"); setTimeout(function(){location.reload();}, 500);
+  }).catch(function(e){ App.toast(e.message,"err"); });
+}
+function delAlias(id){
+  App.api("/api/aliases/"+id+"/delete", {json:{}}).then(function(){
+    App.toast("별칭을 삭제했습니다.","ok"); setTimeout(function(){location.reload();}, 400);
+  }).catch(function(e){ App.toast(e.message,"err"); });
+}
+document.getElementById("newAlias").addEventListener("keydown", function(e){
+  if(e.key==="Enter"){ e.preventDefault(); addAlias(); }
+});
+</script>
+{% endblock %}

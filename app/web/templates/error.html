@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}오류{% endblock %}
+{% block body %}
+<div class="panel">
+  <div class="panel-hd"><h2>처리 중 오류가 발생했습니다</h2></div>
+  <div class="panel-bd">
+    <p>작업은 반영되지 않았습니다. 데이터는 안전합니다.</p>
+    <p class="muted small">같은 오류가 반복되면 아래 내용을 복사해 두세요.</p>
+    <pre class="mono small" style="background:#f7f9fc;padding:12px;border-radius:7px;overflow:auto;max-height:340px">{{ detail }}</pre>
+    <a class="btn primary" href="{{ url_for('web.dashboard') }}">대시보드로</a>
+  </div>
+</div>
+{% endblock %}
