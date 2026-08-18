@@ -1,27 +1,111 @@
 @echo off
-chcp 65001 > nul
+setlocal
+title Àç°í°ü¸®
 cd /d "%~dp0"
-title ìž¬ê³ ê´€ë¦¬
+set "HERE=%~dp0"
+set "PYVER=?"
 
-where python > nul 2>&1
-if errorlevel 1 (
-  echo.
-  echo   [!] íŒŒì´ì¬ì´ ì„¤ì¹˜ë˜ì–´ ìžˆì§€ ì•ŠìŠµë‹ˆë‹¤.
-  echo       https://www.python.org/downloads/ ì—ì„œ ì„¤ì¹˜í•˜ë©´ì„œ
-  echo       "Add Python to PATH" ë¥¼ ë°˜ë“œì‹œ ì²´í¬í•´ ì£¼ì„¸ìš”.
-  echo.
-  pause
-  exit /b 1
-)
+echo.
+echo   ==========================================
+echo             Àç  °í  °ü  ¸®
+echo   ==========================================
+echo.
 
-if not exist ".venv" (
-  echo   ìµœì´ˆ ì‹¤í–‰ìž…ë‹ˆë‹¤. í•„ìš”í•œ ê²ƒë“¤ì„ ì„¤ì¹˜í•©ë‹ˆë‹¤. ìž ì‹œë§Œ ê¸°ë‹¤ë ¤ ì£¼ì„¸ìš”...
-  python -m venv .venv
-  .venv\Scripts\python -m pip install --upgrade pip -q
-  .venv\Scripts\pip install -r requirements.txt -q
-  echo   ì„¤ì¹˜ê°€ ëë‚¬ìŠµë‹ˆë‹¤.
-  echo.
-)
+rem --- ¾ÐÃàÀ» Ç®Áö ¾Ê°í ZIP ¾È¿¡¼­ ¹Ù·Î ½ÇÇàÇß´ÂÁö -------------------
+echo "%HERE%" | find /i "AppData\Local\Temp" >nul
+if not errorlevel 1 goto ZIPWARN
+if not exist "run.py" goto NOFILES
 
-.venv\Scripts\python run.py
+rem --- ÆÄÀÌ½ã Ã£±â : py ·±Ã³ ¿ì¼±, ¾øÀ¸¸é python ---------------------
+set "PY="
+py -3 -c "import sys" >nul 2>&1
+if not errorlevel 1 set "PY=py -3"
+if defined PY goto GOTPY
+
+python -c "import sys" >nul 2>&1
+if not errorlevel 1 set "PY=python"
+if defined PY goto GOTPY
+goto NOPYTHON
+
+:GOTPY
+for /f "delims=" %%v in ('%PY% -c "import sys;print(sys.version.split()[0])" 2^>nul') do set "PYVER=%%v"
+echo   ÆÄÀÌ½ã %PYVER% È®ÀÎ
+echo.
+
+if exist ".venv\Scripts\python.exe" goto RUN
+
+echo   ÃÖÃÊ ½ÇÇàÀÔ´Ï´Ù. ÇÊ¿äÇÑ °ÍÀ» ¼³Ä¡ÇÕ´Ï´Ù.
+echo   1~3ºÐ °É¸³´Ï´Ù. ÀÌ Ã¢À» ´ÝÁö ¸¶¼¼¿ä.
+echo.
+%PY% -m venv ".venv"
+if not exist ".venv\Scripts\python.exe" goto VENVFAIL
+
+".venv\Scripts\python.exe" -m pip install --upgrade pip --quiet
+".venv\Scripts\python.exe" -m pip install -r requirements.txt --quiet
+if errorlevel 1 goto PIPFAIL
+echo   ¼³Ä¡°¡ ³¡³µ½À´Ï´Ù.
+echo.
+
+:RUN
+echo   ÇÁ·Î±×·¥À» ½ÃÀÛÇÕ´Ï´Ù. Àá½Ã ÈÄ ºê¶ó¿ìÀú°¡ ¿­¸³´Ï´Ù.
+echo   ³¡³»·Á¸é ÀÌ Ã¢¿¡¼­ Ctrl+C ¸¦ ´©¸£¼¼¿ä.
+echo.
+".venv\Scripts\python.exe" run.py
+echo.
+echo   ÇÁ·Î±×·¥ÀÌ Á¾·áµÇ¾ú½À´Ï´Ù.
 pause
+exit /b 0
+
+rem ===================================================================
+:ZIPWARN
+echo   [¹®Á¦] ¾ÐÃàÀ» Ç®Áö ¾Ê°í ½ÇÇàÇÏ¼Ì½À´Ï´Ù.
+echo.
+echo     ³»·Á¹ÞÀº ZIP ÆÄÀÏ¿¡ ¸¶¿ì½º ¿À¸¥ÂÊ Å¬¸¯ - "¾ÐÃà Ç®±â" ¸¦ ÇÏ½Å µÚ,
+echo     Ç®¸° Æú´õ ¾ÈÀÇ ½ÇÇà.bat À» ´Ù½Ã ´­·¯ ÁÖ¼¼¿ä.
+echo.
+pause
+exit /b 1
+
+:NOFILES
+echo   [¹®Á¦] ÇÁ·Î±×·¥ ÆÄÀÏÀ» Ã£À» ¼ö ¾ø½À´Ï´Ù. run.py °¡ ¾ø½À´Ï´Ù.
+echo.
+echo     ½ÇÇà.bat ÀÌ ¾ÐÃà Ç¬ Æú´õ ¾È¿¡ ´Ù¸¥ ÆÄÀÏµé°ú °°ÀÌ ÀÖ¾î¾ß ÇÕ´Ï´Ù.
+echo     Áö±Ý À§Ä¡: %HERE%
+echo.
+pause
+exit /b 1
+
+:NOPYTHON
+echo   [¹®Á¦] ÆÄÀÌ½ãÀ» Ã£À» ¼ö ¾ø½À´Ï´Ù.
+echo.
+echo     https://www.python.org/downloads/ ¿¡¼­ ³»·Á¹Þ¾Æ ¼³Ä¡ÇØ ÁÖ¼¼¿ä.
+echo.
+echo     ¼³Ä¡ Ã¹ È­¸é ¸Ç ¾Æ·¡ "Add Python to PATH" ¸¦ ¹Ýµå½Ã Ã¼Å©ÇÏ¼¼¿ä.
+echo     ÀÌ¹Ì ¼³Ä¡ÇÏ¼Ì´Ù¸é ÀÌ Ã¼Å©¸¦ ºü¶ß¸®½Å °ÍÀÔ´Ï´Ù.
+echo     ¼³Ä¡ ÆÄÀÏÀ» ´Ù½Ã ½ÇÇàÇØ Modify ·Î Ãß°¡ÇÏ°Å³ª,
+echo     Áö¿ì°í Ã¼Å©ÇÑ »óÅÂ·Î ´Ù½Ã ¼³Ä¡ÇÏ½Ã¸é µË´Ï´Ù.
+echo.
+echo     ¼³Ä¡ ÈÄ ÀÌ Ã¢À» ´Ý°í ½ÇÇà.bat À» ´Ù½Ã ´­·¯ ÁÖ¼¼¿ä.
+echo.
+pause
+exit /b 1
+
+:VENVFAIL
+echo.
+echo   [¹®Á¦] ½ÇÇà È¯°æÀ» ¸¸µéÁö ¸øÇß½À´Ï´Ù.
+echo.
+echo     Microsoft Store ¿¡¼­ ¼³Ä¡ÇÑ ÆÄÀÌ½ãÀÌ¸é ÀÌ ¹®Á¦°¡ »ý±é´Ï´Ù.
+echo     https://www.python.org/downloads/ ÀÇ Á¤½Ä ¼³Ä¡º»À» ¾²¼¼¿ä.
+echo.
+pause
+exit /b 1
+
+:PIPFAIL
+echo.
+echo   [¹®Á¦] ÇÊ¿äÇÑ ±¸¼º¿ä¼Ò¸¦ ³»·Á¹ÞÁö ¸øÇß½À´Ï´Ù.
+echo.
+echo     ÀÎÅÍ³Ý ¿¬°áÀ» È®ÀÎÇØ ÁÖ¼¼¿ä. ¼³Ä¡ÇÒ ¶§¸¸ ÀÎÅÍ³ÝÀÌ ÇÊ¿äÇÕ´Ï´Ù.
+echo     È¸»ç ³×Æ®¿öÅ©¸é ¹æÈ­º®¿¡ ¸·ÇûÀ» ¼ö ÀÖ½À´Ï´Ù.
+echo.
+pause
+exit /b 1
