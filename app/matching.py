@@ -143,15 +143,22 @@ def similarity(a: str, b: str) -> float:
 
     score = 0.45 * token_jac + 0.30 * char_jac + 0.25 * seq
 
-    # 규격 지문 비교
+    # 규격 지문 비교 — '축약'과 '규격 충돌'을 구분하는 것이 핵심이다.
     sa, sb = spec_signature(a), spec_signature(b)
-    if sa and sb and sa != sb:
-        # 숫자가 하나라도 어긋나면 절대 자동 채택 구간에 못 들어가게 깎는다.
+    if sa == sb:
+        pass                                   # 규격 동일. 감점 없음.
+    elif not sa or not sb:
+        score *= 0.80                          # 한쪽에만 규격이 있음 ("볼펜" vs "볼펜 0.5mm")
+    elif sa < sb or sb < sa:
+        # 한쪽이 다른 쪽의 부분집합 = 축약 표기일 가능성이 높다.
+        # ("A4 복사용지 80g" 는 "A4 복사용지 80g 500매" 의 축약)
+        # 후보로는 띄우되, 자동 채택 구간에는 못 들어가게 한다.
+        score *= 0.85
+    else:
+        # 양쪽에 서로 없는 숫자가 있다 = 규격이 충돌한다 = 다른 물건이다.
+        # (0.5mm vs 0.7mm, 80g vs 75g) 자동 매칭 사고를 여기서 막는다.
         overlap = len(sa & sb) / len(sa | sb)
         score *= 0.35 + 0.30 * overlap
-    elif bool(sa) != bool(sb):
-        # 한쪽에만 규격이 있는 경우 (예: "볼펜" vs "볼펜 0.5mm")
-        score *= 0.80
 
     return round(min(score, 0.999), 4)
 
