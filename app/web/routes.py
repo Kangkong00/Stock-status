@@ -230,6 +230,8 @@ def _register(bp):
             "item_id": r["item_id"], "code": r["code"], "name": r["name"], "spec": r["spec"],
             "unit": r["unit"], "on_hand": r["on_hand"], "reorder_point": r["reorder_point"],
             "unit_cost": r["unit_cost"], "status": r["stock_status"], "location": r["location"],
+            "pack_unit": r["pack_unit"], "pack_size": r["pack_size"],
+            "internal_code": r["internal_code"],
         } for r in rows])
 
     @bp.get("/api/match")
@@ -264,7 +266,8 @@ def _register(bp):
 
         common = dict(txn_type=txn_type, qty=qty, txn_date=b.get("txn_date"),
                       partner=b.get("partner", ""), doc_no=b.get("doc_no", ""),
-                      memo=b.get("memo", ""), unit_cost=b.get("unit_cost") or 0)
+                      memo=b.get("memo", ""), unit_cost=b.get("unit_cost") or 0,
+                      entered_unit=b.get("entered_unit", ""))
 
         if item_id:
             txn_id = models.post_txn(item_id=int(item_id), raw_name=b.get("raw_name", ""),

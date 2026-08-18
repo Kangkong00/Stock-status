@@ -79,7 +79,10 @@
             </div>
           </td>
           <td class="r bold">{{ r.suggest_qty|number }} <span class="muted small">{{ r.unit }}</span></td>
-          <td class="r muted small">{% if r.days_left is not none %}{{ r.days_left }}일{% else %}-{% endif %}</td>
+          <td class="r muted small">
+            {%- if r.negative %}<span style="color:var(--out)" title="출고가 입고보다 많습니다. 입고 누락이거나 기초재고가 빠져 있습니다.">재고 역전</span>
+            {%- elif r.days_left is not none %}{{ r.days_left }}일
+            {%- else %}-{% endif %}</td>
           <td class="c">
             <span class="tag {{ 'out' if r.stock_status=='OUT' else 'low' }}">
               {{ '품절' if r.stock_status=='OUT' else '기준도달' }}</span>

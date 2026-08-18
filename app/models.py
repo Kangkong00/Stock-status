@@ -13,7 +13,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from . import config, db, matching
+from . import config, db, matching, units
 
 TXN_SIGN = {"IN": 1, "OUT": -1, "ADJ": 1}
 
@@ -64,9 +64,12 @@ def create_item(data: dict, conn=None) -> int:
     params = (
         code, name,
         (data.get("spec") or "").strip(),
-        (data.get("unit") or "EA").strip() or "EA",
+        units.normalize_unit(data.get("unit")) or "PC",
         (data.get("category") or "").strip(),
         (data.get("barcode") or "").strip() or None,
+        (data.get("internal_code") or "").strip() or None,
+        units.normalize_unit(data.get("pack_unit")),
+        _num(data.get("pack_size") or 0, "포장규격"),
         (data.get("location") or "").strip(),
         _num(data.get("reorder_point") or 0, "재고기준"),
         _num(data.get("reorder_qty") or 0, "권장발주량"),
@@ -75,9 +78,10 @@ def create_item(data: dict, conn=None) -> int:
         (data.get("memo") or "").strip(),
     )
     sql = """INSERT INTO items
-             (code, name, spec, unit, category, barcode, location,
+             (code, name, spec, unit, category, barcode, internal_code,
+              pack_unit, pack_size, location,
               reorder_point, reorder_qty, unit_cost, active, memo)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"""
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
 
     def _do(c) -> int:
         try:
@@ -91,6 +95,9 @@ def create_item(data: dict, conn=None) -> int:
         matching.learn_alias(item_id, f"{name} {params[2]}".strip(), source="self", conn=c)
         if code:
             matching.learn_alias(item_id, code, source="self", conn=c)
+        ic = (data.get("internal_code") or "").strip()
+        if ic:
+            matching.learn_alias(item_id, ic, source="self", conn=c)
         return item_id
 
     if conn is not None:
@@ -100,7 +107,8 @@ def create_item(data: dict, conn=None) -> int:
 
 
 _ITEM_FIELDS = (
-    "code", "name", "spec", "unit", "category", "barcode", "location",
+    "code", "name", "spec", "unit", "category", "barcode", "internal_code",
+    "pack_unit", "pack_size", "location",
     "reorder_point", "reorder_qty", "unit_cost", "active", "memo",
 )
 
@@ -111,12 +119,14 @@ def update_item(item_id: int, data: dict) -> None:
         if field not in data:
             continue
         value = data[field]
-        if field in ("reorder_point", "reorder_qty", "unit_cost"):
+        if field in ("reorder_point", "reorder_qty", "unit_cost", "pack_size"):
             value = _num(value or 0, field)
         elif field == "active":
             value = 1 if str(value) not in ("0", "False", "false", "") else 0
-        elif field == "barcode":
+        elif field in ("barcode", "internal_code"):
             value = (str(value).strip() or None)
+        elif field in ("unit", "pack_unit"):
+            value = units.normalize_unit(value)
         else:
             value = str(value).strip()
         sets.append(f"{field} = ?")
@@ -163,8 +173,9 @@ def list_stock(*, keyword: str = "", category: str = "", status: str = "",
     if keyword:
         kw = f"%{keyword.strip()}%"
         where.append("(code LIKE ? OR name LIKE ? OR spec LIKE ? OR category LIKE ? "
+                     "OR internal_code LIKE ? OR barcode LIKE ? "
                      "OR item_id IN (SELECT item_id FROM aliases WHERE raw_name LIKE ?))")
-        params += [kw, kw, kw, kw, kw]
+        params += [kw, kw, kw, kw, kw, kw, kw]
     if category:
         where.append("category = ?")
         params.append(category)
@@ -209,28 +220,56 @@ class TxnResult:
 def post_txn(*, item_id: int, txn_type: str, qty: float, txn_date: str | None = None,
              raw_name: str = "", partner: str = "", doc_no: str = "", memo: str = "",
              unit_cost: float = 0, batch_id: str = "", source: str = "manual",
-             allow_negative: bool = True, conn=None) -> int:
-    """원장에 한 건 기록한다. 현재고는 자동으로 따라온다."""
+             entered_unit: str = "", allow_negative: bool = True, conn=None) -> int:
+    """
+    원장에 한 건 기록한다. 현재고는 자동으로 따라온다.
+
+    entered_unit 이 품목 기본단위와 다르면 환산해서 저장하고,
+    사용자가 실제로 친 수량·단위는 entered_qty/entered_unit 에 그대로 남긴다.
+    (예: 가성소다 3포 입력 -> 75KG 저장, "3 BAG" 보존)
+    """
     txn_type = txn_type.upper()
     if txn_type not in TXN_SIGN:
         raise DomainError(f"입출고 구분이 올바르지 않습니다: {txn_type}")
 
     signed_input = _num(qty, "수량", allow_negative=(txn_type == "ADJ"))
     magnitude = abs(signed_input)
-    signed = signed_input if txn_type == "ADJ" else magnitude * TXN_SIGN[txn_type]
-
     if magnitude == 0:
         raise DomainError("수량이 0입니다.")
+
+    raw_qty = magnitude
+    raw_unit = units.normalize_unit(entered_unit)
+    convert_note = ""
+
+    if raw_unit:
+        it = db.query_one(
+            "SELECT unit, pack_unit, pack_size FROM items WHERE id = ?", (item_id,))
+        if it and not units.same_unit(raw_unit, it["unit"]):
+            magnitude, convert_note = units.to_base(
+                magnitude, raw_unit, it["unit"], it["pack_size"], it["pack_unit"])
+            if not convert_note:
+                raise DomainError(
+                    f"'{raw_unit}' 를 이 품목의 단위 '{it['unit']}' 로 바꿀 근거가 없습니다.\n"
+                    f"품목 화면에서 포장단위를 등록하거나(예: 1{raw_unit} = ?{it['unit']}), "
+                    f"'{it['unit']}' 단위로 입력해 주세요.")
+
+    signed = magnitude if txn_type == "ADJ" and signed_input > 0 else (
+        -magnitude if txn_type == "ADJ" and signed_input < 0 else magnitude * TXN_SIGN[txn_type])
+
+    if convert_note:
+        memo = (memo + " " if memo else "") + f"[{convert_note}]"
 
     d = _clean_date(txn_date)
     params = (item_id, d, txn_type, magnitude, signed,
               _num(unit_cost or 0, "단가"), (raw_name or "").strip(),
+              raw_qty, raw_unit,
               (partner or "").strip(), (doc_no or "").strip(), (memo or "").strip(),
               batch_id, source)
     sql = """INSERT INTO transactions
              (item_id, txn_date, txn_type, qty, signed_qty, unit_cost,
-              raw_name, partner, doc_no, memo, batch_id, source)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"""
+              raw_name, entered_qty, entered_unit,
+              partner, doc_no, memo, batch_id, source)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
 
     def _do(c) -> int:
         if txn_type == "OUT" and not allow_negative:
@@ -269,7 +308,8 @@ def void_txn(txn_id: int, reason: str = "") -> None:
 
 def register_by_name(*, raw_name: str, txn_type: str, qty: float, txn_date: str | None = None,
                      partner: str = "", doc_no: str = "", memo: str = "", unit_cost: float = 0,
-                     batch_id: str = "", source: str = "manual", conn=None) -> TxnResult:
+                     batch_id: str = "", source: str = "manual", entered_unit: str = "",
+                     conn=None) -> TxnResult:
     """
     상품명으로 입출고를 등록한다. 3층 매칭 흐름의 진입점.
       매칭 성공 -> 바로 원장 기록 (필요 시 별칭 학습)
@@ -281,7 +321,8 @@ def register_by_name(*, raw_name: str, txn_type: str, qty: float, txn_date: str 
         txn_id = post_txn(
             item_id=result.item_id, txn_type=txn_type, qty=qty, txn_date=txn_date,
             raw_name=raw_name, partner=partner, doc_no=doc_no, memo=memo,
-            unit_cost=unit_cost, batch_id=batch_id, source=source, conn=conn,
+            unit_cost=unit_cost, batch_id=batch_id, source=source,
+            entered_unit=entered_unit, conn=conn,
         )
         return TxnResult(txn_id, result.item_id, "posted",
                          candidates=[c.as_dict() for c in result.candidates],

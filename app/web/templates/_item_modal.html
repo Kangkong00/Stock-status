@@ -16,7 +16,7 @@
           <div class="field"><label>규격 / 색상</label>
             <input type="text" name="spec" id="imSpec" placeholder="예: 검정 0.5mm"></div>
           <div class="field"><label>단위</label>
-            <input type="text" name="unit" id="imUnit" value="EA" placeholder="EA / BOX / 팩"></div>
+            <input type="text" name="unit" id="imUnit" value="PC" placeholder="PC / KG / BOT"></div>
           <div class="field"><label>분류</label>
             <input type="text" name="category" id="imCat" list="catList" placeholder="예: 필기구"></div>
         </div>
@@ -29,13 +29,30 @@
             <input type="number" name="unit_cost" id="imCost" value="0" step="any" min="0"></div>
         </div>
         <div class="grid g3">
+          <div class="field"><label>사내 품목코드</label>
+            <input type="text" name="internal_code" id="imIntCode" placeholder="구매 시스템 코드 (예: 1275495700)"></div>
           <div class="field"><label>보관위치</label>
             <input type="text" name="location" id="imLoc" placeholder="예: A-1"></div>
           <div class="field"><label>바코드</label>
             <input type="text" name="barcode" id="imBar" placeholder="스캐너로 찍으면 입력됩니다"></div>
+        </div>
+
+        <div class="help" style="margin:4px 0 12px">
+          <b>포장단위</b> — 포·박스·말처럼 묶음으로 세는 품목이면 등록하세요.
+          예를 들어 1포 = 25KG 로 두면 <b>"3포"라고 입력해도 75KG 으로 저장</b>됩니다.
+          비워두면 기본 단위로만 입력받습니다.
+        </div>
+        <div class="grid g3">
+          <div class="field"><label>포장단위</label>
+            <input type="text" name="pack_unit" id="imPackU" list="packList" placeholder="포 / BOX / 말 (없으면 비움)"></div>
+          <div class="field"><label>1포장에 담긴 양</label>
+            <input type="number" name="pack_size" id="imPackS" value="0" step="any" min="0" placeholder="예: 25"></div>
           <div class="field"><label>사용 여부</label>
             <select name="active" id="imActive"><option value="1">사용</option><option value="0">사용중지</option></select></div>
         </div>
+        <datalist id="packList">
+          <option value="포"><option value="BOX"><option value="말"><option value="PAIL"><option value="CTN">
+        </datalist>
         <div class="field"><label>비고</label><textarea name="memo" id="imMemo"></textarea></div>
 
         <div id="imAliasBox" hidden>
@@ -74,7 +91,8 @@
     document.getElementById("imDelete").hidden = !id;
     document.getElementById("imAliasBox").hidden = !id;
     document.getElementById("itemForm").reset();
-    set("imId", id||""); set("imUnit","EA"); set("imRP",0); set("imRQ",0); set("imCost",0);
+    set("imId", id||""); set("imUnit","PC"); set("imRP",0); set("imRQ",0); set("imCost",0);
+    set("imPackS",0);
     if(!id){ App.openModal("itemModal"); return; }
     App.api("/api/items/"+id).then(function(d){
       var it = d.item;
@@ -82,6 +100,7 @@
       set("imUnit",it.unit); set("imCat",it.category); set("imRP",it.reorder_point);
       set("imRQ",it.reorder_qty); set("imCost",it.unit_cost); set("imLoc",it.location);
       set("imBar",it.barcode); set("imMemo",it.memo);
+      set("imIntCode",it.internal_code); set("imPackU",it.pack_unit); set("imPackS",it.pack_size);
       document.getElementById("imActive").value = it.active ? "1":"0";
       loadAliases(id);
       App.openModal("itemModal");

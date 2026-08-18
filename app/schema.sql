@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS items (
     unit            TEXT    NOT NULL DEFAULT 'EA',
     category        TEXT    NOT NULL DEFAULT '',
     barcode         TEXT,
+    internal_code   TEXT,                         -- 사내 품목코드 (구매 시스템 10자리 등)
+    pack_unit       TEXT    NOT NULL DEFAULT '',  -- 포장단위 (BAG/BOX/PAIL…)
+    pack_size       REAL    NOT NULL DEFAULT 0,   -- 1포장 = pack_size × unit  (0이면 환산 안 함)
     location        TEXT    NOT NULL DEFAULT '',  -- 보관위치
     reorder_point   REAL    NOT NULL DEFAULT 0,   -- 재고기준: 이 수량 이하면 경고
     reorder_qty     REAL    NOT NULL DEFAULT 0,   -- 권장 발주량
@@ -31,6 +34,7 @@ CREATE INDEX IF NOT EXISTS ix_items_name     ON items(name);
 CREATE INDEX IF NOT EXISTS ix_items_category ON items(category);
 CREATE INDEX IF NOT EXISTS ix_items_active   ON items(active);
 CREATE INDEX IF NOT EXISTS ix_items_barcode  ON items(barcode);
+CREATE INDEX IF NOT EXISTS ix_items_intcode  ON items(internal_code);
 
 -- ---------------------------------------------------------------------
 -- 2층: 별칭 — "주문서엔 이렇게 적혀 온다" 목록. 1품목 : N별칭
@@ -63,6 +67,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     signed_qty  REAL    NOT NULL,
     unit_cost   REAL    NOT NULL DEFAULT 0,
     raw_name    TEXT    NOT NULL DEFAULT '',         -- 원문 보존
+    entered_qty  REAL   NOT NULL DEFAULT 0,          -- 사용자가 실제로 친 수량 (예: 3)
+    entered_unit TEXT   NOT NULL DEFAULT '',         -- 그때의 단위 (예: 포) — 환산 전 값 보존
     partner     TEXT    NOT NULL DEFAULT '',         -- 거래처 (선택 입력)
     doc_no      TEXT    NOT NULL DEFAULT '',         -- 전표/명세서 번호
     memo        TEXT    NOT NULL DEFAULT '',
@@ -151,6 +157,10 @@ SELECT
     i.name              AS name,
     i.spec              AS spec,
     i.unit              AS unit,
+    i.pack_unit         AS pack_unit,
+    i.pack_size         AS pack_size,
+    i.internal_code     AS internal_code,
+    i.barcode           AS barcode,
     i.category          AS category,
     i.location          AS location,
     i.reorder_point     AS reorder_point,

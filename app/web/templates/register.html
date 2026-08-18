@@ -42,12 +42,19 @@
           <div id="sug" style="margin-top:6px"></div>
         </div>
 
-        <div class="grid g2">
+        <div class="grid g3">
           <div class="field"><label>수량 *</label>
             <input type="number" name="qty" id="fQty" step="any" min="0" required placeholder="0"></div>
+          <div class="field"><label>단위</label>
+            <input type="text" name="entered_unit" id="fUnit" placeholder="비우면 품목 단위" list="unitList">
+            <div class="muted small" id="unitHint" style="margin-top:4px"></div></div>
           <div class="field"><label>일자</label>
             <input type="date" name="txn_date" id="fDate" value="{{ today }}"></div>
         </div>
+        <datalist id="unitList">
+          <option value="PC"><option value="KG"><option value="BOT"><option value="포">
+          <option value="BOX"><option value="말"><option value="ROL"><option value="SET">
+        </datalist>
 
         <details id="moreBox">
           <summary class="muted small" style="cursor:pointer;margin-bottom:10px">
@@ -131,11 +138,20 @@ function pick(it){
   document.getElementById("fSearch").value = it.code + " " + it.name + (it.spec ? " " + it.spec : "");
   if(it.unit_cost && !document.getElementById("fCost").value)
     document.getElementById("fCost").value = it.unit_cost;
+  var hint = document.getElementById("unitHint");
+  if(it.pack_size && it.pack_unit){
+    hint.innerHTML = "기본 <b>" + App.esc(it.unit) + "</b> · 1"
+      + App.esc(it.pack_unit) + " = " + App.num(it.pack_size) + App.esc(it.unit)
+      + " 로 등록돼 있어 <b>" + App.esc(it.pack_unit) + "</b> 로도 입력됩니다";
+  } else {
+    hint.innerHTML = "기본 단위 <b>" + App.esc(it.unit || "-") + "</b>";
+  }
   document.getElementById("fQty").focus();
 }
 
 function clearPick(){
   picked = null;
+  var h = document.getElementById("unitHint"); if(h) h.innerHTML = "";
   document.getElementById("fItemId").value = "";
   document.getElementById("picked").hidden = true;
   var s = document.getElementById("fSearch"); s.value = ""; s.focus();

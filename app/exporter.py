@@ -91,7 +91,8 @@ def export_stock(path: Path | None = None, *, include_inactive: bool = False) ->
         ws2.append([r["code"], r["name"], r["spec"], r["unit"], r["on_hand"],
                     r["reorder_point"], r["shortage"], r["suggest_qty"],
                     r["suggest_amount"], r["avg_daily_out"],
-                    r["days_left"] if r["days_left"] is not None else ""])
+                    "재고 역전" if r.get("negative") else
+                    (r["days_left"] if r["days_left"] is not None else "")])
     _autosize(ws2)
 
     # 분류별 요약

@@ -31,11 +31,37 @@ def init_db(path: Path | None = None) -> None:
     sql = config.SCHEMA_PATH.read_text(encoding="utf-8")
     conn = _connect(path)
     try:
+        _migrate(conn)          # 기존 DB 에 새 칼럼을 먼저 붙인다
         conn.executescript(sql)
         _seed_settings(conn)
     finally:
         conn.close()
     _initialised = True
+
+
+# 기존 설치본을 새 스키마로 올리기 위한 칼럼 추가 목록.
+# CREATE TABLE IF NOT EXISTS 는 이미 있는 표를 바꾸지 않으므로 여기서 처리한다.
+_ADD_COLUMNS = [
+    ("items", "internal_code", "TEXT"),
+    ("items", "pack_unit", "TEXT NOT NULL DEFAULT ''"),
+    ("items", "pack_size", "REAL NOT NULL DEFAULT 0"),
+    ("transactions", "entered_qty", "REAL NOT NULL DEFAULT 0"),
+    ("transactions", "entered_unit", "TEXT NOT NULL DEFAULT ''"),
+]
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    tables = {r["name"] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    for table, column, decl in _ADD_COLUMNS:
+        if table not in tables:
+            continue
+        cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+    # 뷰는 정의가 바뀌었을 수 있으므로 지우고 스키마에서 다시 만든다
+    if tables:
+        conn.execute("DROP VIEW IF EXISTS v_stock")
 
 
 def _seed_settings(conn: sqlite3.Connection) -> None:

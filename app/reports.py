@@ -67,7 +67,10 @@ def reorder_list(limit: int = 200) -> list[dict]:
         d["suggest_qty"] = r["reorder_qty"] if r["reorder_qty"] else shortage
         d["suggest_amount"] = d["suggest_qty"] * (r["unit_cost"] or 0)
         d["avg_daily_out"] = _avg_daily_out(r["item_id"])
-        d["days_left"] = round((r["on_hand"] / d["avg_daily_out"]), 1) if d["avg_daily_out"] > 0 else None
+        # 재고가 없거나 마이너스면 '며칠 남았다'는 말이 성립하지 않는다.
+        d["days_left"] = (round(r["on_hand"] / d["avg_daily_out"], 1)
+                          if (d["avg_daily_out"] > 0 and (r["on_hand"] or 0) > 0) else None)
+        d["negative"] = (r["on_hand"] or 0) < 0
         out.append(d)
     return out
 
