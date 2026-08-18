@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import socket
 import sys
 import threading
@@ -40,6 +41,22 @@ def find_port(host: str, start: int, tries: int = 20) -> int:
     raise SystemExit(f"사용 가능한 포트를 찾지 못했습니다 ({start}~{start + tries}).")
 
 
+def install_seed() -> bool:
+    """
+    최초 실행이면 동봉된 초기 데이터(기존 엑셀 이관본)를 data/ 로 복사한다.
+    이미 데이터가 있으면 절대 건드리지 않는다.
+    """
+    if config.DB_PATH.exists():
+        return False
+    seed = config.resource_root().parent / "seed" / "stock.db"
+    if not seed.exists():
+        seed = config.app_root() / "seed" / "stock.db"
+    if not seed.exists():
+        return False
+    shutil.copy2(seed, config.DB_PATH)
+    return True
+
+
 def open_browser(url: str, delay: float = 1.2) -> None:
     def _go():
         time.sleep(delay)
@@ -61,7 +78,11 @@ def main() -> int:
 
     print(BANNER)
     config.ensure_dirs()
+    seeded = install_seed()
     db.init_db()
+    if seeded:
+        print("  기존 엑셀에서 이관한 데이터를 넣었습니다. (품목 584건 / 입출고 2,984건)")
+        print()
 
     port = find_port(args.host, args.port)
     url = f"http://{args.host}:{port}/"

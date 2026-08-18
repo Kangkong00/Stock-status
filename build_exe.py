@@ -34,6 +34,7 @@ def main() -> int:
         "--name", NAME,
         # 템플릿/정적파일/스키마를 실행 파일 안에 동봉한다
         "--add-data", f"{ROOT/'app'/'schema.sql'}{sep}app",
+        "--add-data", f"{ROOT/'seed'/'stock.db'}{sep}seed",
         "--add-data", f"{ROOT/'app'/'web'/'templates'}{sep}app/web/templates",
         "--add-data", f"{ROOT/'app'/'web'/'static'}{sep}app/web/static",
         "--hidden-import", "waitress",
