@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+build/
+dist/
+*.spec.bak
+data/
+*.db
+*.db-journal
+.env
+config.local.json
+backups/
