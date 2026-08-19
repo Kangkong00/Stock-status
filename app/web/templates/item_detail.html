@@ -40,8 +40,13 @@
 
 <div class="grid g2" style="grid-template-columns:1fr minmax(300px,.62fr)">
   <div class="panel">
-    <div class="panel-hd"><h2>입출고 내역</h2>
-      <span class="hint">취소된 전표도 함께 표시됩니다</span></div>
+    <div class="panel-hd"><h2>입출고 내역 <span class="muted" style="font-weight:400">{{ txn_total|number }}건</span></h2>
+      <div>
+        {% if txn_total > txns|length %}
+          <span class="hint" style="color:var(--low)">최근 {{ txns|length }}건만 표시</span>
+        {% else %}<span class="hint">취소된 전표 포함</span>{% endif %}
+        <a class="btn sm" href="{{ url_for('web.history', item_id=item.item_id, voided='1') }}">전체 내역 보기</a>
+      </div></div>
     {% if txns %}
     <div class="panel-bd flush table-scroll" style="max-height:620px;overflow-y:auto">
       <table>
@@ -63,6 +68,12 @@
         </tbody>
       </table>
     </div>
+    {% if txn_total > txns|length %}
+      <div class="panel-bd" style="border-top:1px solid var(--line)">
+        <span class="muted small">전체 {{ txn_total|number }}건 중 최근 {{ txns|length }}건입니다.</span>
+        <a href="{{ url_for('web.history', item_id=item.item_id, voided='1') }}">나머지 {{ (txn_total - txns|length)|number }}건 보기 →</a>
+      </div>
+    {% endif %}
     {% else %}<div class="empty"><div class="small">입출고 기록이 없습니다.</div></div>{% endif %}
   </div>
 

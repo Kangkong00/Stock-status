@@ -222,7 +222,11 @@ document.getElementById("findQ").addEventListener("input", function(){
     App.api("/api/search?q="+encodeURIComponent(q)).then(function(d){
       var box = document.getElementById("findResults");
       if(!d.items.length){ box.innerHTML = "<div class='muted small'>일치하는 품목이 없습니다.</div>"; return; }
-      box.innerHTML = d.items.map(function(it){
+      var more = d.truncated
+        ? "<div class='muted small' style='padding:6px 2px'>" + d.total + "건 중 "
+          + d.items.length + "건만 표시합니다. 검색어를 더 자세히 넣어보세요.</div>"
+        : "";
+      box.innerHTML = more + d.items.map(function(it){
         return "<div class='card' style='padding:9px 12px;margin-bottom:5px;cursor:pointer' "
           + "onclick='resolve("+findFor+","+it.item_id+")'>"
           + "<b>"+App.esc(it.name)+"</b> <span class='muted small'>"+App.esc(it.spec||"")+"</span><br>"

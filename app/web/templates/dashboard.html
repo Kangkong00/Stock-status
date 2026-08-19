@@ -48,7 +48,7 @@
 <div class="panel">
   <div class="panel-hd">
     <h2>지금 발주해야 할 품목
-      {% if reorder %}<span class="tag out">{{ reorder|length }}</span>{% endif %}
+      {% if reorder_total %}<span class="tag out">{{ reorder_total }}</span>{% endif %}
     </h2>
     <div>
       {% if reorder %}<span class="hint">재고기준에 도달했거나 품절된 품목입니다</span>{% endif %}
@@ -95,9 +95,10 @@
       </tbody>
     </table>
   </div>
-  {% if reorder|length > 12 %}
+  {% if reorder_total > 12 %}
     <div class="panel-bd" style="border-top:1px solid var(--line)">
-      <a href="{{ url_for('web.stock', status='ALERT') }}">외 {{ reorder|length - 12 }}건 더 보기 →</a>
+      <span class="muted small">발주가 필요한 {{ reorder_total }}건 중 급한 12건입니다.</span>
+      <a href="{{ url_for('web.stock', status='ALERT') }}">나머지 {{ reorder_total - 12 }}건 보기 →</a>
     </div>
   {% endif %}
   {% else %}

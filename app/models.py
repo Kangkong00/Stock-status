@@ -199,6 +199,13 @@ def list_stock(*, keyword: str = "", category: str = "", status: str = "",
     return db.query(sql, params)
 
 
+def stock_count(*, keyword: str = "", category: str = "", status: str = "",
+                include_inactive: bool = False) -> int:
+    """조건에 맞는 품목 수. 검색 결과가 잘렸는지 알리기 위해 쓴다."""
+    return len(list_stock(keyword=keyword, category=category, status=status,
+                          include_inactive=include_inactive))
+
+
 def categories() -> list[str]:
     rows = db.query("SELECT DISTINCT category FROM items WHERE category <> '' ORDER BY category")
     return [r["category"] for r in rows]
@@ -338,9 +345,8 @@ def register_by_name(*, raw_name: str, txn_type: str, qty: float, txn_date: str 
                      "표준품목을 찾지 못해 확인 대기 목록에 넣었습니다.")
 
 
-def txn_history(*, item_id: int | None = None, date_from: str = "", date_to: str = "",
-                txn_type: str = "", keyword: str = "", include_voided: bool = False,
-                limit: int = 300, offset: int = 0) -> list:
+def _txn_filter(item_id, date_from, date_to, txn_type, keyword,
+                include_voided) -> tuple[str, list]:
     where, params = [], []
     if item_id:
         where.append("t.item_id = ?"); params.append(item_id)
@@ -352,18 +358,33 @@ def txn_history(*, item_id: int | None = None, date_from: str = "", date_to: str
         where.append("t.txn_type = ?"); params.append(txn_type)
     if keyword:
         kw = f"%{keyword.strip()}%"
-        where.append("(i.code LIKE ? OR i.name LIKE ? OR t.raw_name LIKE ? OR t.partner LIKE ? OR t.doc_no LIKE ?)")
-        params += [kw, kw, kw, kw, kw]
+        where.append("(i.code LIKE ? OR i.name LIKE ? OR i.spec LIKE ? "
+                     "OR COALESCE(i.internal_code,'') LIKE ? "
+                     "OR t.raw_name LIKE ? OR t.partner LIKE ? OR t.doc_no LIKE ? "
+                     "OR t.memo LIKE ?)")
+        params += [kw] * 8
     if not include_voided:
         where.append("t.voided = 0")
+    return (" WHERE " + " AND ".join(where)) if where else "", params
 
-    sql = """SELECT t.*, i.code, i.name, i.spec, i.unit
-               FROM transactions t JOIN items i ON i.id = t.item_id"""
-    if where:
-        sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY t.txn_date DESC, t.id DESC LIMIT ? OFFSET ?"
-    params += [int(limit), int(offset)]
-    return db.query(sql, params)
+
+def txn_count(*, item_id: int | None = None, date_from: str = "", date_to: str = "",
+              txn_type: str = "", keyword: str = "", include_voided: bool = False) -> int:
+    """조건에 맞는 전체 건수. 화면이 몇 건 중 몇 건을 보여주는지 알리기 위해 쓴다."""
+    clause, params = _txn_filter(item_id, date_from, date_to, txn_type, keyword, include_voided)
+    return db.scalar(
+        "SELECT COUNT(*) FROM transactions t JOIN items i ON i.id = t.item_id" + clause,
+        params, 0)
+
+
+def txn_history(*, item_id: int | None = None, date_from: str = "", date_to: str = "",
+                txn_type: str = "", keyword: str = "", include_voided: bool = False,
+                limit: int = 300, offset: int = 0) -> list:
+    clause, params = _txn_filter(item_id, date_from, date_to, txn_type, keyword, include_voided)
+    sql = ("SELECT t.*, i.code, i.name, i.spec, i.unit "
+           "FROM transactions t JOIN items i ON i.id = t.item_id" + clause +
+           " ORDER BY t.txn_date DESC, t.id DESC LIMIT ? OFFSET ?")
+    return db.query(sql, params + [int(limit), int(offset)])
 
 
 # =====================================================================

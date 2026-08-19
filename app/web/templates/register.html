@@ -174,7 +174,11 @@ function search(q){
         + "일치하는 품목이 없습니다. 이대로 저장하면 <b>확인 대기</b>로 넘어갑니다.</div>";
       return;
     }
-    box.innerHTML = d.items.map(function(it){
+    var more = d.truncated
+      ? "<div class='muted small' style='padding:6px 2px'>일치하는 품목 " + d.total
+        + "건 중 " + d.items.length + "건만 표시합니다. 검색어를 더 자세히 넣어보세요.</div>"
+      : "";
+    box.innerHTML = more + d.items.map(function(it){
       var tagmap = {OUT:["out","품절"], LOW:["low","기준도달"], OK:["ok","정상"]};
       var t = tagmap[it.status] || ["gray",""];
       return "<div class='card' style='padding:8px 11px;margin-bottom:5px;cursor:pointer' "

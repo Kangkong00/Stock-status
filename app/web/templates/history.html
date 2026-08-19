@@ -3,29 +3,61 @@
 {% block body %}
 
 <div class="page-head">
-  <div><h1>입출고 내역</h1>
-    <div class="sub">{{ totals.count }}건 · 입고 {{ totals.in|number }} · 출고 {{ totals.out|number }}</div></div>
+  <div>
+    <h1>입출고 내역{% if item %} <span class="muted" style="font-size:15px;font-weight:400">— {{ item.name }}</span>{% endif %}</h1>
+    <div class="sub">
+      <b>{{ total|number }}건</b>
+      {% if period == 'all' and not keyword and not txn_type %}(전체 기간){% endif %}
+      · 입고 {{ totals.in|number }} · 출고 {{ totals.out|number }}
+      {% if pages > 1 %} · {{ page }}/{{ pages }} 쪽{% endif %}
+    </div>
+  </div>
   <div class="actions">
+    {% if item %}<a class="btn" href="{{ url_for('web.item_detail', item_id=item.item_id) }}">품목 상세</a>{% endif %}
     <a class="btn" href="{{ url_for('web.export_txn_file', **{'from': d_from, 'to': d_to}) }}">엑셀 받기</a>
   </div>
 </div>
 
 <div class="panel"><div class="panel-bd">
+  {# ---- 기간 빠른 선택 ---- #}
+  <div class="btn-group" style="margin-bottom:12px">
+    <span class="muted small" style="align-self:center;margin-right:4px">기간</span>
+    {% set qs = {'keyword': keyword, 'type': txn_type, 'voided': '1' if show_voided else '', 'item_id': item_id} %}
+    <a class="btn sm {{ 'primary' if period=='all' }}"   href="{{ url_for('web.history', period='all', **qs) }}">전체</a>
+    <a class="btn sm {{ 'primary' if period=='today' }}" href="{{ url_for('web.history', period='today', **qs) }}">오늘</a>
+    <a class="btn sm {{ 'primary' if period=='7' }}"     href="{{ url_for('web.history', period='7', **qs) }}">7일</a>
+    <a class="btn sm {{ 'primary' if period=='30' }}"    href="{{ url_for('web.history', period='30', **qs) }}">30일</a>
+    <a class="btn sm {{ 'primary' if period=='90' }}"    href="{{ url_for('web.history', period='90', **qs) }}">90일</a>
+    <a class="btn sm {{ 'primary' if period=='365' }}"   href="{{ url_for('web.history', period='365', **qs) }}">1년</a>
+  </div>
+
   <form class="inline" method="get">
-    <div class="field"><label>시작일</label><input type="date" name="from" value="{{ d_from }}"></div>
-    <div class="field"><label>종료일</label><input type="date" name="to" value="{{ d_to }}"></div>
+    {% if item_id %}<input type="hidden" name="item_id" value="{{ item_id }}">{% endif %}
+    <div class="field" style="flex:1;min-width:190px"><label>검색 <span class="kbd">/</span></label>
+      <input type="text" name="keyword" value="{{ keyword }}"
+             placeholder="품목코드 · 품목명 · 원문 상품명 · 거래처 · 전표번호 · 비고" data-search></div>
+    <div class="field"><label>시작일 <span class="muted">(비우면 처음부터)</span></label>
+      <input type="date" name="from" value="{{ d_from }}"></div>
+    <div class="field"><label>종료일 <span class="muted">(비우면 오늘까지)</span></label>
+      <input type="date" name="to" value="{{ d_to }}"></div>
     <div class="field" style="min-width:110px"><label>구분</label>
       <select name="type"><option value="">전체</option>
         <option value="IN"  {{ 'selected' if txn_type=='IN' }}>입고</option>
         <option value="OUT" {{ 'selected' if txn_type=='OUT' }}>출고</option>
         <option value="ADJ" {{ 'selected' if txn_type=='ADJ' }}>실사조정</option>
       </select></div>
-    <div class="field" style="flex:1;min-width:170px"><label>검색</label>
-      <input type="text" name="keyword" value="{{ keyword }}" placeholder="품목 · 원문상품명 · 거래처 · 전표번호" data-search></div>
     <div class="field"><label class="check"><input type="checkbox" name="voided" value="1" {{ 'checked' if show_voided }}> 취소분 포함</label></div>
     <button class="btn primary">조회</button>
     <a class="btn" href="{{ url_for('web.history') }}">초기화</a>
   </form>
+
+  {% if keyword or txn_type or d_from or d_to %}
+    <div class="muted small" style="margin-top:9px">
+      조건에 맞는 전체 <b>{{ total|number }}건</b>을 찾았습니다.
+      {% if pages > 1 %}한 쪽에 {{ page_size }}건씩 {{ pages }}쪽으로 나눠 보여드립니다.{% endif %}
+      {% if d_from or d_to %} · 기간 {{ d_from or '처음' }} ~ {{ d_to or '오늘' }}{% endif %}
+    </div>
+  {% endif %}
 </div></div>
 
 <div class="panel">
@@ -34,8 +66,8 @@
     <table>
       <thead><tr>
         <th>일자</th><th>구분</th><th>품목코드</th><th>품목명</th><th>규격</th>
-        <th class="r">수량</th><th class="r">단가</th><th>거래처</th><th>전표번호</th>
-        <th>원문 상품명</th><th>비고</th><th></th>
+        <th class="r">수량</th><th class="r">입력값</th><th class="r">단가</th>
+        <th>거래처</th><th>전표번호</th><th>원문 상품명</th><th>비고</th><th></th>
       </tr></thead>
       <tbody>
       {% for t in rows %}
@@ -46,6 +78,9 @@
           <td>{{ t.name }}</td>
           <td class="muted small">{{ t.spec }}</td>
           <td class="r bold">{{ t.signed_qty|number }} <span class="muted small">{{ t.unit }}</span></td>
+          <td class="r muted small nowrap">
+            {%- if t.entered_unit and t.entered_unit != t.unit %}{{ t.entered_qty|number }}{{ t.entered_unit }}{% endif -%}
+          </td>
           <td class="r muted">{{ t.unit_cost|number if t.unit_cost else '' }}</td>
           <td class="small">{{ t.partner }}</td>
           <td class="small mono">{{ t.doc_no }}</td>
@@ -57,9 +92,36 @@
       </tbody>
     </table>
   </div>
+
+  {# ---- 쪽 넘기기 ---- #}
+  {% if pages > 1 %}
+  {% set nav = {'keyword': keyword, 'type': txn_type, 'voided': '1' if show_voided else '',
+                'from': d_from, 'to': d_to, 'period': period, 'item_id': item_id} %}
+  <div class="panel-bd" style="border-top:1px solid var(--line);display:flex;
+       align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div class="muted small">
+      전체 {{ total|number }}건 중
+      <b>{{ ((page-1)*page_size + 1)|number }}~{{ (((page-1)*page_size) + rows|length)|number }}번째</b>를 보고 있습니다
+    </div>
+    <div class="btn-group">
+      <a class="btn sm {{ 'loading' if page<=1 }}" href="{{ url_for('web.history', page=1, **nav) }}">« 처음</a>
+      <a class="btn sm {{ 'loading' if page<=1 }}" href="{{ url_for('web.history', page=page-1 if page>1 else 1, **nav) }}">‹ 이전</a>
+      <span class="btn sm" style="pointer-events:none"><b>{{ page }}</b> / {{ pages }}</span>
+      <a class="btn sm {{ 'loading' if page>=pages }}" href="{{ url_for('web.history', page=page+1 if page<pages else pages, **nav) }}">다음 ›</a>
+      <a class="btn sm {{ 'loading' if page>=pages }}" href="{{ url_for('web.history', page=pages, **nav) }}">마지막 »</a>
+    </div>
+  </div>
+  {% endif %}
+
   {% else %}
-  <div class="empty"><div class="big">해당 조건의 내역이 없습니다</div>
-    <div class="small">기간이나 검색어를 바꿔보세요.</div></div>
+  <div class="empty">
+    <div class="big">해당 조건의 내역이 없습니다</div>
+    <div class="small">
+      {% if d_from or d_to %}기간이 좁을 수 있습니다. 위의 <b>전체</b> 버튼을 눌러 보세요.
+      {% else %}검색어를 바꿔 보세요.{% endif %}
+    </div>
+    <div style="margin-top:14px"><a class="btn primary" href="{{ url_for('web.history') }}">전체 내역 보기</a></div>
+  </div>
   {% endif %}
 </div>
 {% endblock %}

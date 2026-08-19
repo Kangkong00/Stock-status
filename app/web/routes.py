@@ -132,6 +132,8 @@ def _register(bp):
     @bp.route("/")
     def dashboard():
         s = reports.summary()
+        reorder_total = db.scalar(
+            "SELECT COUNT(*) FROM v_stock WHERE active=1 AND stock_status IN ('LOW','OUT')", (), 0)
         reorder = reports.reorder_list(limit=60)
         for r in reorder:
             rp = r["reorder_point"] or 0
@@ -139,6 +141,7 @@ def _register(bp):
         trend = reports.daily_trend(30)
         return render_template(
             "dashboard.html", active="dash", s=s, reorder=reorder,
+            reorder_total=reorder_total,
             pending=models.list_pending(),
             recent=models.txn_history(limit=8),
             trend=trend,
@@ -176,7 +179,9 @@ def _register(bp):
             "item_detail.html", active="stock", item=item,
             categories=models.categories(), cat_table=coding.category_table(),
             aliases=models.item_aliases(item_id),
-            txns=models.txn_history(item_id=item_id, include_voided=True, limit=300),
+            txns=models.txn_history(item_id=item_id, include_voided=True, limit=500),
+            txn_total=models.txn_count(item_id=item_id, include_voided=True),
+            txn_shown=500,
             flow=reports.opening_closing(item_id, d_from, d_to),
             avg_out=reports._avg_daily_out(item_id),
             d_from=d_from, d_to=d_to,
@@ -239,8 +244,10 @@ def _register(bp):
         q = _arg("q")
         if not q:
             return jsonify(ok=True, items=[])
-        rows = models.list_stock(keyword=q, limit=15)
-        return jsonify(ok=True, items=[{
+        limit = min(50, max(5, request.args.get("limit", type=int) or 20))
+        total = models.stock_count(keyword=q)
+        rows = models.list_stock(keyword=q, limit=limit)
+        return jsonify(ok=True, total=total, truncated=total > len(rows), items=[{
             "item_id": r["item_id"], "code": r["code"], "name": r["name"], "spec": r["spec"],
             "unit": r["unit"], "on_hand": r["on_hand"], "reorder_point": r["reorder_point"],
             "unit_cost": r["unit_cost"], "status": r["stock_status"], "location": r["location"],
@@ -336,22 +343,56 @@ def _register(bp):
         return jsonify(ok=True, message="목록에서 제외했습니다.")
 
     # ------------------------------------------------------------ 입출고 내역
+    PAGE_SIZE = 200
+
     @bp.route("/history")
     def history():
-        d_from = _arg("from", (date.today() - timedelta(days=30)).isoformat())
-        d_to = _arg("to", models.today())
-        txn_type, keyword = _arg("type"), _arg("keyword")
+        """
+        기간 기본값은 '전체'다. 예전에는 최근 30일로 잘라 놓아
+        검색해도 과거가 안 나오는 것처럼 보였다.
+        """
+        keyword = _arg("keyword")
+        txn_type = _arg("type")
+        item_id = request.args.get("item_id", type=int)
+        period = _arg("period", "all")
+
+        # 기간 버튼을 누르면 period 로, 날짜를 직접 넣으면 그 값으로 조회한다
+        presets = {"today": 0, "7": 7, "30": 30, "90": 90, "365": 365}
+        d_from, d_to = _arg("from"), _arg("to")
+        if not d_from and not d_to:
+            if period in presets:
+                d_from = (date.today() - timedelta(days=presets[period])).isoformat()
+                d_to = models.today()
+            else:
+                period, d_from, d_to = "all", "", ""
+        else:
+            period = "custom"
+
         show_voided = _arg("voided") == "1"
-        rows = models.txn_history(date_from=d_from, date_to=d_to, txn_type=txn_type,
-                                  keyword=keyword, include_voided=show_voided, limit=1000)
-        totals = {
-            "in": sum(r["qty"] for r in rows if r["txn_type"] == "IN" and not r["voided"]),
-            "out": sum(r["qty"] for r in rows if r["txn_type"] == "OUT" and not r["voided"]),
-            "count": len(rows),
-        }
-        return render_template("history.html", active="hist", rows=rows, totals=totals,
-                               d_from=d_from, d_to=d_to, txn_type=txn_type,
-                               keyword=keyword, show_voided=show_voided)
+        page = max(1, request.args.get("page", type=int) or 1)
+
+        crit = dict(item_id=item_id, date_from=d_from, date_to=d_to, txn_type=txn_type,
+                    keyword=keyword, include_voided=show_voided)
+        total = models.txn_count(**crit)
+        pages = max(1, -(-total // PAGE_SIZE))
+        page = min(page, pages)
+        rows = models.txn_history(**crit, limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE)
+
+        # 합계는 화면에 보이는 쪽이 아니라 조건 전체를 기준으로 낸다
+        agg = db.query_one(
+            "SELECT COALESCE(SUM(CASE WHEN t.txn_type='IN' AND t.voided=0 THEN t.qty END),0) AS i,"
+            "       COALESCE(SUM(CASE WHEN t.txn_type='OUT' AND t.voided=0 THEN t.qty END),0) AS o"
+            " FROM transactions t JOIN items i ON i.id = t.item_id"
+            + models._txn_filter(item_id, d_from, d_to, txn_type, keyword, show_voided)[0],
+            models._txn_filter(item_id, d_from, d_to, txn_type, keyword, show_voided)[1])
+
+        item = models.get_item(item_id) if item_id else None
+        return render_template(
+            "history.html", active="hist", rows=rows,
+            totals={"in": agg["i"], "out": agg["o"], "count": total},
+            total=total, page=page, pages=pages, page_size=PAGE_SIZE,
+            d_from=d_from, d_to=d_to, period=period, txn_type=txn_type,
+            keyword=keyword, show_voided=show_voided, item=item, item_id=item_id)
 
     # ------------------------------------------------------------ 재고실사
     @bp.route("/stocktake")
