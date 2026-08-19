@@ -10,7 +10,7 @@ from flask import (Flask, abort, flash, jsonify, redirect, render_template,
                    request, send_file, session, url_for)
 from werkzeug.utils import secure_filename
 
-from .. import config, db, exporter, importer, mailer, matching, models, reports
+from .. import coding, config, db, exporter, importer, mailer, matching, models, reports
 from ..scheduler import scheduler
 
 bp_name = "web"
@@ -161,7 +161,8 @@ def _register(bp):
             "alert": sum(1 for r in rows if r["stock_status"] in ("LOW", "OUT")),
         }
         return render_template("stock.html", active="stock", rows=rows, totals=totals,
-                               categories=models.categories(), keyword=keyword,
+                               categories=models.categories(), cat_table=coding.category_table(),
+                               keyword=keyword,
                                category=category, status=status, order=order, show_all=show_all)
 
     @bp.route("/stock/<int:item_id>")
@@ -173,6 +174,7 @@ def _register(bp):
         d_to = _arg("to", models.today())
         return render_template(
             "item_detail.html", active="stock", item=item,
+            categories=models.categories(), cat_table=coding.category_table(),
             aliases=models.item_aliases(item_id),
             txns=models.txn_history(item_id=item_id, include_voided=True, limit=300),
             flow=reports.opening_closing(item_id, d_from, d_to),
@@ -218,6 +220,18 @@ def _register(bp):
     def api_alias_delete(alias_id):
         models.delete_alias(alias_id)
         return jsonify(ok=True, message="별칭을 삭제했습니다.")
+
+    # ------------------------------------------------------------ 품목코드 자동 부여
+    @bp.get("/api/next-code")
+    def api_next_code():
+        """분류를 고르면 다음 품목코드를 알려준다. 사람이 코드를 외울 필요가 없다."""
+        cat = _arg("category")
+        return jsonify(ok=True, category=cat, prefix=coding.prefix_for(cat),
+                       code=coding.next_code(cat))
+
+    @bp.get("/api/categories")
+    def api_categories():
+        return jsonify(ok=True, table=coding.category_table())
 
     # ------------------------------------------------------------ 검색/매칭
     @bp.get("/api/search")
@@ -299,7 +313,9 @@ def _register(bp):
     def pending():
         return render_template("pending.html", active="pending",
                                rows=models.list_pending(),
-                               resolved=models.list_pending("resolved")[:20])
+                               resolved=models.list_pending("resolved")[:20],
+                               categories=models.categories(),
+                               cat_table=coding.category_table())
 
     @bp.post("/api/pending/<int:pending_id>/resolve")
     def api_pending_resolve(pending_id):

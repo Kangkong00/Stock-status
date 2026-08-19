@@ -109,13 +109,21 @@
         <div class="help">품목을 새로 만들면서 이 입출고까지 한 번에 처리합니다.
           원문 상품명은 별칭으로 자동 등록됩니다.</div>
         <div class="grid g2">
-          <div class="field"><label>품목코드 *</label><input type="text" name="code" id="nCode" required></div>
-          <div class="field"><label>품목명 *</label><input type="text" name="name" id="nName" required></div>
+          <div class="field"><label>분류 <span class="muted">— 고르면 코드가 자동으로 붙습니다</span></label>
+            <input type="text" name="category" id="nCat" list="catList" placeholder="목록에서 고르거나 새로 입력"></div>
+          <div class="field"><label>품목코드 *
+              <a href="#" onclick="App.showCatTable();return false" style="float:right;font-weight:400">분류표 보기</a></label>
+            <div class="inline">
+              <input type="text" name="code" id="nCode" required style="flex:1"
+                     placeholder="분류를 고르면 채워집니다">
+              <button type="button" class="btn sm" onclick="forceCode()">자동</button>
+            </div>
+            <div class="muted small" id="nCodeHint" style="margin-top:4px"></div></div>
         </div>
         <div class="grid g3">
+          <div class="field"><label>품목명 *</label><input type="text" name="name" id="nName" required></div>
           <div class="field"><label>규격</label><input type="text" name="spec" id="nSpec"></div>
-          <div class="field"><label>단위</label><input type="text" name="unit" id="nUnit" value="EA"></div>
-          <div class="field"><label>분류</label><input type="text" name="category" id="nCat" list="catList"></div>
+          <div class="field"><label>단위</label><input type="text" name="unit" id="nUnit" value="PC"></div>
         </div>
         <div class="grid g3">
           <div class="field"><label>재고기준</label><input type="number" name="reorder_point" id="nRP" value="0" step="any" min="0"></div>
@@ -131,6 +139,28 @@
   </div>
 </div>
 <datalist id="catList">{% for c in categories or [] %}<option value="{{ c }}">{% endfor %}</datalist>
+
+{# 분류표 #}
+<div class="modal" id="catTableModal" hidden>
+  <div class="modal-box">
+    <div class="modal-hd"><h3>분류표</h3><button class="close-x" data-close="catTableModal">&times;</button></div>
+    <div class="modal-bd">
+      <div class="help">품목코드는 <b>분류 접두어 + 일련번호</b> 형식입니다.
+        분류를 고르면 다음 번호가 자동으로 붙으므로 외우실 필요가 없습니다.
+        목록에 없는 분류를 새로 적으시면 겹치지 않는 접두어를 만들어 드립니다.</div>
+      <table>
+        <thead><tr><th>접두어</th><th>분류</th><th class="r">품목수</th><th>다음 코드</th></tr></thead>
+        <tbody>
+        {% for r in cat_table or [] %}
+          <tr><td class="mono bold">{{ r.prefix }}</td><td>{{ r.category }}</td>
+              <td class="r">{{ r.count }}</td><td class="mono muted">{{ r.next }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="modal-ft"><button type="button" class="btn" data-close="catTableModal">닫기</button></div>
+  </div>
+</div>
 
 {% endblock %}
 
@@ -203,13 +233,49 @@ document.getElementById("findQ").addEventListener("input", function(){
   }, 180);
 });
 
+var codeTouched = false, codeSeq = 0;
+
+// 코드를 직접 고치셨는지 기억한다. 자동 부여가 사용자 입력을 덮어쓰면 안 된다.
+document.addEventListener("input", function(e){
+  if(e.target.id === "nCode") codeTouched = true;
+});
+
+// mode "auto"  : 분류를 고르거나 창을 열 때. 직접 고친 값은 건드리지 않는다.
+// mode "force" : [자동] 버튼을 눌렀을 때. 무조건 다시 부여한다.
+function nextCode(mode){
+  var el = document.getElementById("nCode"), hint = document.getElementById("nCodeHint");
+  if(!el) return;
+  if(mode !== "force" && codeTouched) return;
+  var cat = document.getElementById("nCat").value || "";
+  var seq = ++codeSeq;
+  App.api("/api/next-code?category=" + encodeURIComponent(cat)).then(function(d){
+    if(seq !== codeSeq) return;                       // 더 최근 요청이 있으면 버린다
+    if(mode !== "force" && codeTouched) return;       // 응답 오는 사이 직접 입력하셨으면 둔다
+    el.value = d.code;
+    hint.textContent = (cat ? cat : "분류 없음") + " → 접두어 " + d.prefix
+                     + " · 다음 번호 자동 부여 (직접 고쳐도 됩니다)";
+  }).catch(function(){});
+}
+
+function forceCode(){ codeTouched = false; nextCode("force"); }
+
+document.addEventListener("change", function(e){
+  if(e.target.id === "nCat") nextCode("auto");
+});
+
+App.showCatTable = function(){ App.openModal("catTableModal"); };
+
 function newItemFrom(pid, rawName){
   document.getElementById("nPendId").value = pid;
   document.getElementById("nName").value = rawName;
   document.getElementById("nCode").value = "";
   document.getElementById("nSpec").value = "";
+  document.getElementById("nCat").value = "";
+  document.getElementById("nCodeHint").textContent = "";
+  codeTouched = false; codeSeq++;
   App.openModal("newModal");
-  setTimeout(function(){ document.getElementById("nCode").focus(); }, 60);
+  nextCode("auto");
+  setTimeout(function(){ document.getElementById("nCat").focus(); }, 60);
 }
 
 function saveNew(ev){

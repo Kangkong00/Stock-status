@@ -118,7 +118,40 @@ def main():
                 check("상품명이 창에 채워진다", pg.input_value("#nName") == name,
                       f"got {pg.input_value('#nName')!r}")
 
-            print("\n[3] 신규 품목 등록 + 입고까지 한 번에 처리된다")
+            print("\n[3] ★ 품목코드가 분류에 따라 자동으로 붙는다")
+            auto0 = pg.input_value("#nCode")
+            check("창이 열리자마자 코드가 채워져 있다", bool(auto0.strip()), f"got {auto0!r}")
+            pg.select_option("#nCat", value="약품류") if False else pg.fill("#nCat", "약품류")
+            pg.dispatch_event("#nCat", "change"); pg.wait_for_timeout(600)
+            auto1 = pg.input_value("#nCode")
+            check(f"분류(약품류)를 고르면 코드가 바뀐다 → {auto1}", auto1.startswith("CH-"),
+                  f"got {auto1!r}")
+            hint = pg.inner_text("#nCodeHint")
+            check("어떤 규칙인지 안내가 뜬다", "접두어" in hint, hint)
+            pg.click("a:has-text('분류표 보기')"); pg.wait_for_timeout(400)
+            check("분류표를 볼 수 있다", pg.is_visible("#catTableModal"))
+            nrows = pg.eval_on_selector_all("#catTableModal tbody tr", "e=>e.length")
+            check(f"분류표에 {nrows}개 분류가 나온다", nrows >= 1, f"got {nrows}")
+            pg.click("#catTableModal [data-close]"); pg.wait_for_timeout(300)
+
+            pg.fill("#nCat", "안전용품")
+            pg.dispatch_event("#nCat", "change"); pg.wait_for_timeout(700)
+            auto2 = pg.input_value("#nCode")
+            check(f"새 분류에도 겹치지 않는 코드를 만들어 준다 → {auto2}",
+                  auto2 and auto2 != auto1, f"got {auto2!r}")
+
+            print("\n[3-2] ★ 직접 친 코드를 자동 부여가 덮어쓰지 않는다")
+            pg.fill("#nCat", "약품류")            # 응답이 오는 중에
+            pg.fill("#nCode", "NEW-0001")        # 곧바로 코드를 직접 입력
+            pg.wait_for_timeout(1200)            # 늦게 온 응답이 덮어쓰는지 확인
+            check("직접 입력한 코드가 유지된다", pg.input_value("#nCode") == "NEW-0001",
+                  f"got {pg.input_value('#nCode')!r} — 늦게 온 응답이 덮어씀")
+            pg.click("#newModal button:has-text('자동')"); pg.wait_for_timeout(800)
+            check("[자동] 버튼을 누르면 다시 부여된다",
+                  pg.input_value("#nCode").startswith("CH-"),
+                  f"got {pg.input_value('#nCode')!r}")
+
+            print("\n[3-3] 신규 품목 등록 + 입고까지 한 번에 처리된다")
             pg.fill("#nCode", "NEW-0001")
             pg.fill("#nUnit", "PC")
             pg.fill("#nRP", "5")
@@ -188,6 +221,23 @@ def main():
             check("수정 창이 열린다", pg.is_visible("#itemModal"))
             check("사내코드 칸이 있다", pg.is_visible("#imIntCode"))
             check("포장단위 칸이 있다", pg.is_visible("#imPackU"))
+            existing = pg.input_value("#imCode")
+            pg.fill("#imCat", "약품류"); pg.dispatch_event("#imCat", "change")
+            pg.wait_for_timeout(600)
+            check("수정 중에는 기존 코드를 함부로 바꾸지 않는다",
+                  pg.input_value("#imCode") == existing,
+                  f"{existing} → {pg.input_value('#imCode')}")
+            pg.keyboard.press("Escape"); pg.wait_for_timeout(300)
+
+            print("\n[9] 재고현황에서 새 품목을 만들 때도 코드가 자동으로 붙는다")
+            pg.click("button:has-text('+ 품목 등록')"); pg.wait_for_timeout(700)
+            check("등록 창이 열린다", pg.is_visible("#itemModal"))
+            c0 = pg.input_value("#imCode")
+            check(f"코드가 미리 채워져 있다 → {c0}", bool(c0.strip()), f"got {c0!r}")
+            pg.fill("#imCat", "약품류"); pg.dispatch_event("#imCat", "change")
+            pg.wait_for_timeout(600)
+            c1 = pg.input_value("#imCode")
+            check(f"분류에 맞는 코드로 바뀐다 → {c1}", c1.startswith("CH-"), f"got {c1!r}")
             pg.keyboard.press("Escape")
 
             b.close()
