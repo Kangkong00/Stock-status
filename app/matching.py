@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections import Counter
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
@@ -139,16 +140,34 @@ def similarity(a: str, b: str) -> float:
     ga, gb = _bigrams(a), _bigrams(b)
     char_jac = len(ga & gb) / len(ga | gb) if (ga | gb) else 0.0
 
-    seq = SequenceMatcher(None, a.replace(" ", ""), b.replace(" ", "")).ratio()
+    ca, cb = a.replace(" ", ""), b.replace(" ", "")
+    seq = SequenceMatcher(None, ca, cb).ratio()
 
-    score = 0.45 * token_jac + 0.30 * char_jac + 0.25 * seq
+    # 한국어는 같은 말을 붙여 쓰기도 하고 띄어 쓰기도 한다.
+    # ("폴리머분말" vs "폴리머 분말", "가성소다고상" vs "가성소다 고상")
+    # 이러면 토큰이 하나도 안 겹쳐 위 지표들이 전부 낮게 나온다.
+    # 글자 단위로 얼마나 겹치는지를 따로 본다. 어순·띄어쓰기에 영향받지 않는다.
+    ma, mb = Counter(ca), Counter(cb)
+    char_cov = (sum((ma & mb).values()) / max(len(ca), len(cb))) if (ca and cb) else 0.0
+
+    # 짧은 쪽이 긴 쪽에 통째로 들어 있으면 축약 표기로 본다.
+    # ("가성소다고상" 은 "가성소다고상(98%)(25kg)" 의 축약)
+    substring = bool(ca and cb and (ca in cb or cb in ca))
+    if substring:
+        char_cov = 1.0
+
+    score = 0.35 * token_jac + 0.25 * char_jac + 0.20 * seq + 0.20 * char_cov
 
     # 규격 지문 비교 — '축약'과 '규격 충돌'을 구분하는 것이 핵심이다.
     sa, sb = spec_signature(a), spec_signature(b)
     if sa == sb:
         pass                                   # 규격 동일. 감점 없음.
     elif not sa or not sb:
-        score *= 0.80                          # 한쪽에만 규격이 있음 ("볼펜" vs "볼펜 0.5mm")
+        # 한쪽에만 규격이 있음 ("볼펜" vs "볼펜 0.5mm").
+        # 다만 이름이 통째로 들어 있는 축약형이라면 규격을 생략한 것이 정상이므로
+        # 감점하지 않는다. 규격이 서로 '어긋나는' 경우(아래)와는 다른 상황이다.
+        if not substring:
+            score *= 0.80
     elif sa < sb or sb < sa:
         # 한쪽이 다른 쪽의 부분집합 = 축약 표기일 가능성이 높다.
         # ("A4 복사용지 80g" 는 "A4 복사용지 80g 500매" 의 축약)

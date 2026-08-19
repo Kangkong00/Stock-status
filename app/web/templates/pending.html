@@ -33,16 +33,19 @@
           <div class="muted small mono" style="margin-top:3px">정규화 키: {{ p.norm_name }}</div>
         </div>
         <div class="btn-group">
-          <button class="btn" onclick="newItemFrom({{ p.id }}, {{ p.raw_name|tojson }})">신규 품목으로 등록</button>
-          <button class="btn" onclick="searchFor({{ p.id }})">직접 찾기</button>
-          <button class="btn danger" onclick="discard({{ p.id }})">제외</button>
+          {# 상품명에 따옴표가 들어가면 onclick 속성이 끊기므로 data 속성으로 넘긴다 #}
+          <button class="btn" data-act="new" data-pid="{{ p.id }}"
+                  data-name="{{ p.raw_name }}">신규 품목으로 등록</button>
+          <button class="btn" data-act="find" data-pid="{{ p.id }}">직접 찾기</button>
+          <button class="btn danger" data-act="discard" data-pid="{{ p.id }}">제외</button>
         </div>
       </div>
 
       {% if p.candidates %}
       <div class="grid g2">
         {% for c in p.candidates %}
-        <div class="card" style="padding:10px 13px;cursor:pointer" onclick="resolve({{ p.id }}, {{ c.item_id }})">
+        <div class="card" style="padding:10px 13px;cursor:pointer"
+             data-act="resolve" data-pid="{{ p.id }}" data-item="{{ c.item_id }}">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
             <div>
               <b>{{ c.name }}</b> <span class="muted small">{{ c.spec }}</span><br>
@@ -134,6 +137,21 @@
 {% block script %}
 <script>
 var findFor = null, ftimer = null;
+
+// 버튼/카드의 동작은 data 속성으로 지정하고 여기서 한 번에 처리한다.
+// 상품명처럼 따옴표가 들어갈 수 있는 값을 인라인 onclick 에 박으면
+// 속성이 중간에 끊겨 클릭이 통째로 먹통이 된다.
+document.addEventListener("click", function(e){
+  var el = e.target.closest("[data-act]");
+  if(!el) return;
+  var pid = Number(el.dataset.pid);
+  switch(el.dataset.act){
+    case "new":     newItemFrom(pid, el.dataset.name || ""); break;
+    case "find":    searchFor(pid); break;
+    case "discard": discard(pid); break;
+    case "resolve": resolve(pid, Number(el.dataset.item)); break;
+  }
+});
 
 function resolve(pid, itemId){
   var box = document.getElementById("pend"+pid);

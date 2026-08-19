@@ -32,7 +32,7 @@ PORT = int(os.environ.get("STOCK_PORT", "8765"))
 
 # 유사도 매칭 임계값
 AUTO_ACCEPT_SCORE = 0.94   # 이 이상이면 사람 확인 없이 자동 매칭 + 별칭 학습
-SUGGEST_SCORE = 0.45       # 이 이상이면 후보로 제시 (확인 클릭 1번이므로 넉넉하게)
+SUGGEST_SCORE = 0.38       # 이 이상이면 후보로 제시. 규격이 충돌하는 조합은 감점으로 0.35 아래에 머문다
 MAX_CANDIDATES = 5
 
 DEFAULT_SETTINGS = {
