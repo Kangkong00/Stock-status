@@ -76,6 +76,56 @@
 
       <div id="result" style="margin-top:14px"></div>
     </div>
+
+    {# ------- 저장 버튼 아래: 자리를 옮기지 않고 과거 기록을 보는 곳 ------- #}
+    <div class="panel-hd" style="border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+      <h2>입출고 내역 <span class="muted" style="font-weight:400" id="hTotal"></span></h2>
+      <div>
+        <span class="hint" id="hScope">전체 품목</span>
+        <a class="btn sm" href="{{ url_for('web.history') }}" target="_blank">전체 화면으로</a>
+      </div>
+    </div>
+    <div class="panel-bd">
+      <div id="hItemChip" hidden style="margin-bottom:10px">
+        <span class="pill" style="background:#eef6ff;border:1px solid #bcd8f7;padding:5px 10px;font-size:12.5px">
+          <b id="hItemName"></b> 기준으로 보는 중
+          <a href="#" onclick="histClearItem();return false" style="margin-left:6px;color:#c53030">&times;</a>
+        </span>
+      </div>
+
+      <div class="inline" style="margin-bottom:10px">
+        <div class="field" style="flex:1;min-width:150px">
+          <input type="text" id="hKeyword" placeholder="품목 · 원문 상품명 · 거래처 · 전표번호로 찾기">
+        </div>
+        <div class="field" style="min-width:96px">
+          <select id="hType">
+            <option value="">입고+출고</option>
+            <option value="IN">입고만</option>
+            <option value="OUT">출고만</option>
+            <option value="ADJ">실사조정</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="btn-group" style="margin-bottom:10px">
+        <button type="button" class="btn sm primary" data-hp="all">전체</button>
+        <button type="button" class="btn sm" data-hp="7">7일</button>
+        <button type="button" class="btn sm" data-hp="30">30일</button>
+        <button type="button" class="btn sm" data-hp="90">90일</button>
+        <button type="button" class="btn sm" data-hp="365">1년</button>
+      </div>
+    </div>
+
+    <div class="panel-bd flush table-scroll" style="max-height:420px;overflow-y:auto">
+      <table id="hTable">
+        <thead><tr><th>일자</th><th>구분</th><th>품목</th><th class="r">수량</th>
+          <th>거래처</th><th>전표</th><th>비고</th></tr></thead>
+        <tbody><tr><td colspan="7" class="empty small">불러오는 중...</td></tr></tbody>
+      </table>
+    </div>
+    <div class="panel-bd" id="hMoreBox" style="border-top:1px solid var(--line);display:none">
+      <button type="button" class="btn sm" id="hMore" style="width:100%">더 보기</button>
+    </div>
   </div>
 
   <div class="panel">
@@ -138,6 +188,7 @@ function pick(it){
   document.getElementById("fSearch").value = it.code + " " + it.name + (it.spec ? " " + it.spec : "");
   if(it.unit_cost && !document.getElementById("fCost").value)
     document.getElementById("fCost").value = it.unit_cost;
+  histSetItem(it);
   var hint = document.getElementById("unitHint");
   if(it.pack_size && it.pack_unit){
     hint.innerHTML = "기본 <b>" + App.esc(it.unit) + "</b> · 1"
@@ -152,6 +203,7 @@ function pick(it){
 function clearPick(){
   picked = null;
   var h = document.getElementById("unitHint"); if(h) h.innerHTML = "";
+  histSetItem(null);
   document.getElementById("fItemId").value = "";
   document.getElementById("picked").hidden = true;
   var s = document.getElementById("fSearch"); s.value = ""; s.focus();
@@ -207,6 +259,7 @@ function submitTxn(ev){
       App.toast("등록했습니다. " + d.message, "ok");
       res.innerHTML = "<div class='flash ok'><div><b>등록 완료</b>" + App.esc(d.message) + "</div></div>";
       addRecentRow(d, data);
+      histLoad(false);
       document.getElementById("fQty").value = "";
       if(!picked) clearPick();
       document.getElementById(picked ? "fQty" : "fSearch").focus();
@@ -257,5 +310,110 @@ function voidTxn(id){
 document.addEventListener("keydown", function(e){
   if(e.ctrlKey && e.key === "Enter"){ e.preventDefault(); document.getElementById("btnSave").click(); }
 });
+
+/* ------------------------------------------------------------------
+   저장 버튼 아래의 입출고 내역 조회
+   품목을 고르면 그 품목 기준으로 자동으로 좁혀 보여준다.
+   기입을 놓친 항목을 어디에 넣어야 할지 보면서 입력하기 위한 것.
+------------------------------------------------------------------ */
+var histItem = null, histPeriod = "all", histOffset = 0, histTimer = null, histSeq = 0;
+var PAGE = 30;
+
+function histParams(offset){
+  var p = ["limit=" + PAGE, "offset=" + offset, "period=" + histPeriod];
+  if(histItem) p.push("item_id=" + histItem.item_id);
+  var kw = document.getElementById("hKeyword").value.trim();
+  if(kw) p.push("keyword=" + encodeURIComponent(kw));
+  var tp = document.getElementById("hType").value;
+  if(tp) p.push("type=" + tp);
+  return p.join("&");
+}
+
+function histRow(r){
+  var kindClass = {IN:"in", OUT:"outq", ADJ:"adj"}[r.type] || "gray";
+  var entered = (r.entered_unit && r.entered_unit !== r.unit)
+    ? " <span class='muted small'>(" + App.num(r.entered_qty) + App.esc(r.entered_unit) + ")</span>" : "";
+
+  // 한 품목만 보고 있을 때는 품목명을 줄마다 되풀이하지 않는다.
+  // 대신 그때 어떤 이름으로 들어왔는지(원문)를 보여주는 편이 쓸모 있다.
+  var nameCell = histItem
+    ? "<span class='muted small'>" + App.esc(r.raw_name || "-") + "</span>"
+    : "<b>" + App.esc(r.name) + "</b> <span class='muted small'>" + App.esc(r.spec || "") + "</span>"
+      + (r.raw_name && r.raw_name !== r.name
+          ? "<br><span class='muted small'>원문: " + App.esc(r.raw_name) + "</span>" : "");
+
+  return "<tr" + (r.voided ? " class='voided'" : "") + ">"
+    + "<td class='muted small nowrap'>" + App.esc(r.date) + "</td>"
+    + "<td><span class='tag " + kindClass + "'>" + App.esc(r.kind) + "</span></td>"
+    + "<td>" + nameCell + "</td>"
+    + "<td class='r bold nowrap'>" + App.num(r.signed_qty) + " <span class='muted small'>"
+    + App.esc(r.unit || "") + "</span>" + entered + "</td>"
+    + "<td class='small'>" + App.esc(r.partner || "") + "</td>"
+    + "<td class='small mono'>" + App.esc(r.doc_no || "") + "</td>"
+    + "<td class='small muted'>" + App.esc(r.memo || "") + "</td></tr>";
+}
+
+// 품목을 고르면 표 머리글도 그에 맞게 바꾼다
+function histHeader(){
+  var th = document.querySelector("#hTable thead tr th:nth-child(3)");
+  if(th) th.textContent = histItem ? "원문 상품명" : "품목";
+}
+
+function histLoad(append){
+  var seq = ++histSeq;
+  if(!append) histOffset = 0;
+  var tb = document.querySelector("#hTable tbody");
+  if(!append) tb.innerHTML = "<tr><td colspan='7' class='empty small'>불러오는 중...</td></tr>";
+
+  App.api("/api/history?" + histParams(histOffset)).then(function(d){
+    if(seq !== histSeq) return;                     // 늦게 온 응답은 버린다
+    document.getElementById("hTotal").textContent = App.num(d.total) + "건";
+    if(!append) tb.innerHTML = "";
+    if(!d.rows.length && !append){
+      tb.innerHTML = "<tr><td colspan='7' class='empty small'>"
+        + (histItem ? "이 품목의 입출고 기록이 아직 없습니다."
+                    : "조건에 맞는 내역이 없습니다.") + "</td></tr>";
+    } else {
+      tb.insertAdjacentHTML("beforeend", d.rows.map(histRow).join(""));
+    }
+    histOffset = d.offset + d.rows.length;
+    document.getElementById("hMoreBox").style.display = d.has_more ? "" : "none";
+    document.getElementById("hMore").textContent =
+      "더 보기 (" + App.num(d.total - histOffset) + "건 남음)";
+  }).catch(function(e){
+    if(seq !== histSeq) return;
+    tb.innerHTML = "<tr><td colspan='7' class='empty small'>불러오지 못했습니다: "
+                 + App.esc(e.message) + "</td></tr>";
+  });
+}
+
+function histSetItem(it){
+  histItem = it;
+  document.getElementById("hItemChip").hidden = !it;
+  document.getElementById("hScope").textContent = it ? "선택한 품목" : "전체 품목";
+  if(it) document.getElementById("hItemName").textContent =
+    it.code + " · " + it.name + (it.spec ? " " + it.spec : "");
+  histHeader();
+  histLoad(false);
+}
+function histClearItem(){ histSetItem(null); }
+
+document.getElementById("hKeyword").addEventListener("input", function(){
+  clearTimeout(histTimer);
+  histTimer = setTimeout(function(){ histLoad(false); }, 250);
+});
+document.getElementById("hType").addEventListener("change", function(){ histLoad(false); });
+document.getElementById("hMore").addEventListener("click", function(){ histLoad(true); });
+document.querySelectorAll("[data-hp]").forEach(function(b){
+  b.addEventListener("click", function(){
+    histPeriod = this.dataset.hp;
+    document.querySelectorAll("[data-hp]").forEach(function(x){
+      x.className = "btn sm" + (x.dataset.hp === histPeriod ? " primary" : "");
+    });
+    histLoad(false);
+  });
+});
+
+histLoad(false);
 </script>
 {% endblock %}

@@ -315,6 +315,41 @@ def _register(bp):
         models.void_txn(txn_id, (_body().get("reason") or "").strip())
         return jsonify(ok=True, message="전표를 취소했습니다.")
 
+    @bp.get("/api/history")
+    def api_history():
+        """
+        입출고 내역을 JSON 으로 준다.
+        등록 화면에서 자리를 옮기지 않고 과거 기록을 확인하기 위한 것.
+        """
+        item_id = request.args.get("item_id", type=int)
+        keyword = _arg("keyword")
+        txn_type = _arg("type")
+        period = _arg("period", "all")
+        limit = min(200, max(5, request.args.get("limit", type=int) or 30))
+        offset = max(0, request.args.get("offset", type=int) or 0)
+
+        presets = {"today": 0, "7": 7, "30": 30, "90": 90, "365": 365}
+        d_from = ""
+        if period in presets:
+            d_from = (date.today() - timedelta(days=presets[period])).isoformat()
+
+        crit = dict(item_id=item_id, date_from=d_from, date_to="",
+                    txn_type=txn_type, keyword=keyword, include_voided=True)
+        total = models.txn_count(**crit)
+        rows = models.txn_history(**crit, limit=limit, offset=offset)
+        return jsonify(ok=True, total=total, offset=offset, limit=limit,
+                       has_more=(offset + len(rows)) < total,
+                       rows=[{
+                           "id": r["id"], "date": r["txn_date"], "type": r["txn_type"],
+                           "kind": TXN_KIND.get(r["txn_type"], r["txn_type"]),
+                           "code": r["code"], "name": r["name"], "spec": r["spec"],
+                           "unit": r["unit"], "signed_qty": r["signed_qty"],
+                           "entered_qty": r["entered_qty"], "entered_unit": r["entered_unit"],
+                           "partner": r["partner"], "doc_no": r["doc_no"],
+                           "raw_name": r["raw_name"], "memo": r["memo"],
+                           "voided": bool(r["voided"]),
+                       } for r in rows])
+
     # ------------------------------------------------------------ 확인 대기
     @bp.route("/pending")
     def pending():
